@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 // useNavigate는 더 이상 필요 없으므로 삭제합니다.
 // import { useNavigate } from 'react-router-dom';
 import Modal from '../components/Modal'; // 1. Modal 컴포넌트 가져오기
-import Upload from './upload';           // 2. Upload 컴포넌트 가져오기
+import Upload from './Upload.jsx';           // 2. Upload 컴포넌트 가져오기
 
 export default function Home() {
   // const navigate = useNavigate();
