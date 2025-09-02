@@ -1,0 +1,38 @@
+/* src/App.css */
+
+/* 전체 앱 컨테이너 */
+.app-container {
+  display: flex;
+  flex-direction: column; /* 헤더를 맨 위에 위치시키기 위해 세로 방향으로 정렬 */
+  height: 100vh; /* 화면 전체 높이를 차지하도록 설정 */
+}
+
+/* 메인 콘텐츠 영역 (사이드바 + 실제 페이지 내용) */
+.main-content {
+  display: flex;
+  flex-direction: row; /* 사이드바와 메인 콘텐츠를 가로로 나란히 배치 */
+  flex-grow: 1; /* 헤더를 제외한 나머지 모든 공간을 차지하도록 설정 */
+}
+
+/* 실제 페이지 내용이 표시될 영역 */
+main {
+  flex-grow: 1; /* 사이드바를 제외한 나머지 모든 공간을 차지 */
+  /* padding: 20px; <-- 이 부분을 주석 처리하여 로그인 페이지가 화면에 꽉 차도록 합니다. */
+  overflow-y: auto; /* 내용이 많아지면 스크롤바 생성 */
+}
+
+/* 로그인 화면을 위한 스타일 (화면 중앙 정렬용) */
+.main-content-login {
+  width: 100vw; /* 화면 전체 너비를 차지하도록 설정 */
+}
+
+
+/* Sidebar 컴포넌트에 직접 적용했던 스타일을 여기로 옮겨와도 좋습니다. */
+/* 예를 들어, Sidebar의 너비나 배경색 등을 지정할 수 있습니다. */
+/*
+nav {
+  min-width: 200px;
+  background-color: #f4f4f4;
+}
+*/
+
