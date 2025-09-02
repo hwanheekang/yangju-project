@@ -1,12 +1,25 @@
-# React + Vite
+## 1일차 작업 내용
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+### 작업 개요
+- React와 Vite를 이용한 AI 가계부 프로젝트 초기 작업 진행
+- 대시보드 화면 구현 및 사이드바 추가
+- Git을 이용한 버전 관리 및 커밋 작업 진행
 
-Currently, two official plugins are available:
+### 세부 내용
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+1. **대시보드 화면 구성**
+   - 기본 대시보드 화면 구현
+   - '영수증 추가하기' 버튼 추가
 
-## Expanding the ESLint configuration
+2. **사이드바 기능 추가**
+   - 사이드바에 '카테고리별 지출내역' 메뉴 항목 추가
+   - 메뉴 항목들이 세로로 정렬되도록 레이아웃 수정
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+3. **Git 커밋 및 관리**
+   - 변경된 파일들 `git add .`로 스테이징 완료
+   - 줄바꿈(LF/CRLF) 관련 경고 확인 및 설명
+   - 커밋 명령어 및 푸시 과정 안내
+
+---
+
+오늘 작업을 통해 기본 UI 구성과 간단한 메뉴 기능 추가, 그리고 Git을 활용한 코드 관리 방법을 익혔습니다.
