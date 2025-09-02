@@ -1,5 +1,7 @@
 # Show Me The Money - Backend
 
+## 1-2일차
+
 이 프로젝트는 **Node.js, Express, Azure SQL Database**를 사용하여 만든 영수증 관리 백엔드입니다. 서버리스 환경(Azure App Service, Azure Functions)으로 확장할 수 있도록 설계되었습니다.
 
 ---
