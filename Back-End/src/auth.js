@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { sql, pool } from './db.js';
 
-export const authRouter = Router();
+const authRouter = Router();
 
 // --- User Registration ---
 authRouter.post('/register', async (req, res) => {
@@ -71,3 +71,5 @@ authRouter.post('/login', async (req, res) => {
     res.status(500).json({ error: 'Database error during login.' });
   }
 });
+
+export { authRouter };
