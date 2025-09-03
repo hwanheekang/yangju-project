@@ -21,7 +21,7 @@ authRouter.post('/register', async (req, res) => {
     request.input('password_hash', sql.NVarChar, password_hash);
 
     const result = await request.query(
-      'INSERT INTO users (username, password_hash) OUTPUT INSERTED.id, INSERTED.username VALUES (@username, @password_hash)'
+      'INSERT INTO dbo.Users (username, password_hash) OUTPUT INSERTED.id, INSERTED.username VALUES (@username, @password_hash)'
     );
 
     res.status(201).json(result.recordset[0]);
@@ -30,7 +30,8 @@ authRouter.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Username already exists.' });
     }
     console.error('Registration Error:', error);
-    res.status(500).json({ error: 'Database error during registration.' });
+    // DB 오류 상세 메시지도 함께 전달
+    res.status(500).json({ error: 'Database error during registration.', details: error.message || error.toString() });
   }
 });
 
@@ -45,11 +46,13 @@ authRouter.post('/login', async (req, res) => {
   try {
     const request = pool.request();
     request.input('username', sql.NVarChar, username);
-    const result = await request.query('SELECT * FROM users WHERE username = @username');
+  const result = await request.query('SELECT * FROM dbo.Users WHERE username = @username');
     const user = result.recordset[0];
 
+
     if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials.' });
+      // 계정이 없을 때 404로 응답
+      return res.status(404).json({ error: 'User not found. Please register.' });
     }
 
     const isMatch = await bcrypt.compare(password, user.password_hash);

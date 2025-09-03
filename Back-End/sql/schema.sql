@@ -16,7 +16,7 @@ CREATE TABLE receipts (
     store_name NVARCHAR(120),
     total_amount DECIMAL(12, 2),
     transaction_date DATETIME2,
-    category NVARCHAR(50),
+    category NVARCHAR(50) NOT NULL DEFAULT N'분류 대기',
     source_blob_url NVARCHAR(MAX),
     created_at DATETIME2 DEFAULT GETDATE(),
     updated_at DATETIME2 DEFAULT GETDATE(),

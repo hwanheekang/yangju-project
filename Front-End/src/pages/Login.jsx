@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import apiFetch from '../api';
 
 const Login = ({ onLoginSuccess }) => {
   const navigate = useNavigate();
@@ -9,31 +10,67 @@ const Login = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setIsLoading(true);
 
-    if (isLoginView) {
-      if (!username || !password) {
-        setError('아이디와 비밀번호를 모두 입력해주세요.');
-        return;
+    try {
+      if (isLoginView) {
+        if (!username || !password) {
+          setError('아이디와 비밀번호를 모두 입력해주세요.');
+          return;
+        }
+
+        try {
+          const response = await apiFetch('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ username, password })
+          });
+
+          if (response.token) {
+            onLoginSuccess(response.token);
+            navigate('/');
+          }
+        } catch (err) {
+          // 404: 계정 없음 → 회원가입 안내
+          if (err.message.includes('404') || err.message.includes('User not found')) {
+            setError('계정이 존재하지 않습니다. 회원가입이 필요합니다.');
+          } else if (err.message.includes('401')) {
+            setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+          } else {
+            setError(err.message || '오류가 발생했습니다.');
+          }
+          setIsLoading(false);
+          return;
+        }
+      } else {
+        if (!username || !password || !confirmPassword) {
+          setError('모든 필드를 입력해주세요.');
+          return;
+        }
+        if (password !== confirmPassword) {
+          setError('비밀번호가 일치하지 않습니다.');
+          return;
+        }
+
+        await apiFetch('/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ username, password })
+        });
+
+        alert('회원가입에 성공했습니다! 이제 로그인해주세요.');
+        setIsLoginView(true);
+        setPassword('');
+        setConfirmPassword('');
       }
-      console.log('프론트엔드 로그인 성공:', { username });
-      onLoginSuccess();
-      navigate('/');
-    } else {
-      if (!username || !password || !confirmPassword) {
-        setError('모든 필드를 입력해주세요.');
-        return;
-      }
-      if (password !== confirmPassword) {
-        setError('비밀번호가 일치하지 않습니다.');
-        return;
-      }
-      console.log('프론트엔드 회원가입 성공:', { username });
-      alert('회원가입에 성공했습니다! 이제 로그인해주세요.');
-      setIsLoginView(true);
+    } catch (err) {
+  // DB 상세 오류 메시지까지 표시
+  setError(err.message || (err.details ? err.details : '오류가 발생했습니다.'));
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -48,6 +85,7 @@ const Login = ({ onLoginSuccess }) => {
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           style={styles.input}
+          disabled={isLoading}
         />
         <input
           type="password"
@@ -55,6 +93,7 @@ const Login = ({ onLoginSuccess }) => {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           style={styles.input}
+          disabled={isLoading}
         />
         {!isLoginView && (
           <input
@@ -63,23 +102,26 @@ const Login = ({ onLoginSuccess }) => {
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             style={styles.input}
+            disabled={isLoading}
           />
         )}
-        <button type="submit" style={styles.button}>
-          {isLoginView ? '로그인' : '회원가입'}
+        <button type="submit" style={styles.button} disabled={isLoading}>
+          {isLoading ? '처리 중...' : (isLoginView ? '로그인' : '회원가입')}
         </button>
-        {/* ▼▼▼▼▼ 이 부분의 style과 onClick이 수정되었습니다 ▼▼▼▼▼ */}
         <p style={styles.toggleText}>
           {isLoginView ? '아직 회원이 아니신가요?' : '이미 계정이 있으신가요?'}
-          {/* 실제 클릭되는 부분은 링크처럼 보이게 처리 */}
           <span 
             style={styles.toggleLink} 
-            onClick={() => setIsLoginView(!isLoginView)}
+            onClick={() => {
+              if (!isLoading) {
+                setIsLoginView(!isLoginView);
+                setError('');
+              }
+            }}
           >
             {isLoginView ? ' 회원가입' : ' 로그인'}
           </span>
         </p>
-        {/* ▲▲▲▲▲ 여기까지 수정되었습니다 ▲▲▲▲▲ */}
       </form>
     </div>
   );
@@ -91,20 +133,17 @@ const styles = {
   form: { display: 'flex', flexDirection: 'column', gap: '10px', width: '300px', padding: '20px', border: '1px solid #ccc', borderRadius: '8px', boxShadow: '0 4px 8px rgba(0, 0, 0, 0.1)' },
   input: { padding: '10px', fontSize: '16px', borderRadius: '4px', border: '1px solid #ddd' },
   button: { padding: '10px', fontSize: '16px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' },
-  // ▼▼▼▼▼ 여기에 새로운 스타일이 추가되었습니다 ▼▼▼▼▼
   toggleText: {
     textAlign: 'center',
-    color: '#6c757d', // 비활성화된 느낌의 회색 텍스트
+    color: '#6c757d',
     fontSize: '14px',
   },
   toggleLink: {
-    color: '#007bff', // 링크 부분만 파란색으로
-    cursor: 'pointer', // 마우스를 올리면 손가락 모양으로
-    fontWeight: 'bold', // 약간 굵게
+    color: '#007bff',
+    cursor: 'pointer',
+    fontWeight: 'bold',
   }
-  // ▲▲▲▲▲ 여기까지 추가되었습니다 ▲▲▲▲▲
 };
-
 
 export default Login;
 

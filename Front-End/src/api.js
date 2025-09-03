@@ -23,16 +23,25 @@ const apiFetch = async (endpoint, options = {}) => {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+
   // Vite 프록시가 기본 URL('http://localhost:4000')을 처리해줍니다.
   const response = await fetch(`/api${endpoint}`, {
     ...options,
     headers,
   });
 
-  // 응답이 성공적이지 않을 경우 에러 처리
+  // 응답이 성공적이지 않을 경우 에러 처리 (상태코드 포함)
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: '알 수 없는 에러가 발생했습니다.' }));
-    throw new Error(errorData.message || `HTTP 에러! 상태: ${response.status}`);
+    let errorData = { message: '', details: '' };
+    try {
+      errorData = await response.json();
+    } catch (_){
+      // 응답 본문이 JSON이 아닐 때 무시
+    }
+    const errorMsg = errorData.message || errorData.error || `HTTP 에러! 상태: ${response.status}`;
+    // 상태코드와 DB 상세 메시지도 포함
+    const details = errorData.details ? `\n상세: ${errorData.details}` : '';
+    throw new Error(`${errorMsg} (HTTP ${response.status})${details}`);
   }
 
   // 응답 내용이 없는 경우 (e.g., 204 No Content)

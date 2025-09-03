@@ -1,0 +1,19 @@
+{
+  "name": "yangju-project",
+  "version": "1.0.0",
+  "description": "Receipt Management Application",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd Back-End && npm run dev",
+    "dev:frontend": "cd Front-End && npm run dev",
+    "install:all": "npm install && cd Back-End && npm install && cd ../Front-End && npm install",
+    "build": "cd Front-End && npm run build",
+    "start": "cd Back-End && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": ["receipt", "management", "react", "nodejs", "express"],
+  "author": "",
+  "license": "ISC"
+}
