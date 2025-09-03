@@ -1,0 +1,22 @@
+{
+  "name": "show-me-the-money-backend",
+  "version": "1.0.0",
+  "description": "Backend for the Show Me The Money app",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "mssql": "^10.0.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "morgan": "^1.10.0",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "@azure/storage-blob": "^12.18.0"
+  }
+}
