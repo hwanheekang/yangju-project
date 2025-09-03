@@ -1,22 +1,57 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
-const navStyle = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '10px',  // 메뉴 사이 간격
-  padding: '10px',
-};
+const Sidebar = ({ onLogout }) => {
+  const navigate = useNavigate();
 
-// 현재 사용되지 않는 props는 정리하여 코드를 간결하게 만듭니다.
-function Sidebar() {
+  const handleLogout = () => {
+    onLogout();
+    navigate('/login');
+  };
+
+  const styles = {
+    nav: {
+      display: 'flex',
+      flexDirection: 'column',
+      padding: '20px',
+      backgroundColor: '#f8f9fa',
+      height: '100%',
+      minWidth: '200px',
+      // ▼▼▼▼▼ 바로 이 한 줄이 추가되었습니다! ▼▼▼▼▼
+      boxSizing: 'border-box',
+      // ▲▲▲▲▲ 여기가 추가된 부분입니다 ▲▲▲▲▲
+    },
+    link: {
+      textDecoration: 'none',
+      color: '#333',
+      padding: '10px 15px',
+      borderRadius: '5px',
+      marginBottom: '10px',
+      transition: 'background-color 0.2s',
+    },
+    logoutButton: {
+      marginTop: 'auto',
+      padding: '10px 15px',
+      border: 'none',
+      borderRadius: '5px',
+      backgroundColor: '#dc3545',
+      color: 'white',
+      cursor: 'pointer',
+      textAlign: 'center',
+    }
+  };
+
   return (
-    <nav style={navStyle}>
-      <Link to="/">대시보드</Link>
-      {/* '카테고리별 지출내역' 링크의 목적지를 '/statistics'로 변경합니다. */}
-      <Link to="/statistics">카테고리별 지출내역</Link>
+    <nav style={styles.nav}>
+      <Link to="/" style={styles.link}>대시보드</Link>
+      <Link to="/statistics" style={styles.link}>카테고리별 지출내역</Link>
+      
+      <button onClick={handleLogout} style={styles.logoutButton}>
+        로그아웃
+      </button>
     </nav>
   );
-}
+};
 
 export default Sidebar;
+
