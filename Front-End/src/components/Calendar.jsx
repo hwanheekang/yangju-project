@@ -6,6 +6,7 @@ import '../calendar-override.css';
 function groupReceiptsByDate(receipts) {
   const map = {};
   receipts.forEach(r => {
+    // DB에서 YYYY-MM-DD로 들어온 날짜를 그대로 key로 사용
     const date = r.transaction_date.slice(0, 10);
     if (!map[date]) map[date] = [];
     map[date].push(r);
@@ -13,63 +14,28 @@ function groupReceiptsByDate(receipts) {
   return map;
 }
 
-export default function ReceiptCalendar({ receipts, onDateClick, onMonthChange }) {
+export default function ReceiptCalendar({ receipts, onDateClick, onMonthChange, hideSummary = false }) {
   const [calendarValue, setCalendarValue] = useState(new Date());
   const [activeStartDate, setActiveStartDate] = useState(new Date());
+  const [view, setView] = useState('month'); // 'month' | 'year' | 'decade'
   const receiptsByDate = useMemo(() => groupReceiptsByDate(receipts), [receipts]);
 
-  // 날짜별 타일에 영수증 개수 표시 (날짜 오른쪽 아래에 작게)
-  const tileContent = ({ date, view }) => {
-    if (view === 'month') {
-      const key = date.toISOString().slice(0, 10);
-      const count = receiptsByDate[key]?.length || 0;
-      return (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'space-between',
-          alignItems: 'stretch',
-          height: '100%',
-          width: '100%',
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          pointerEvents: 'none'
-        }}>
-          <span style={{
-            alignSelf: 'flex-start',
-            margin: '4px 0 0 6px',
-            fontSize: 14,
-            fontWeight: 400,
-            color: '#222'
-          }}>{date.getDate()}일</span>
-          {count > 0 && (
-            <span style={{
-              alignSelf: 'flex-end',
-              margin: '0 6px 4px 0',
-              fontSize: 14,
-              fontWeight: 700,
-              color: '#03a9f4'
-            }}>{count}개</span>
-          )}
-        </div>
-      );
-    }
-    return null;
-  };
+  // 타일 커스텀 콘텐츠 제거: 기본 abbr를 중앙에 표시
+  const tileContent = () => null;
 
   // 오늘 버튼 클릭 시 현재 월로 이동
   const handleToday = () => {
     const today = new Date();
     setCalendarValue(today);
     setActiveStartDate(new Date(today.getFullYear(), today.getMonth(), 1));
+    setView('month');
     if (onMonthChange) onMonthChange(today);
   };
 
   // 월 변경 시 부모에 알림
   const handleActiveStartDateChange = ({ activeStartDate }) => {
     setActiveStartDate(activeStartDate);
-    if (onMonthChange) onMonthChange(activeStartDate);
+    if (view === 'month' && onMonthChange) onMonthChange(activeStartDate);
   };
 
   // 월별 총 지출/개수 계산
@@ -82,33 +48,86 @@ export default function ReceiptCalendar({ receipts, onDateClick, onMonthChange }
   const monthTotal = filtered.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
   const monthCount = filtered.length;
 
+  // Month-only arrows ‹ › (no « » year jump buttons)
+  const shift = (dir) => {
+    if (view === 'month') {
+      const d = new Date(year, month + dir, 1);
+      setActiveStartDate(d);
+      if (onMonthChange) onMonthChange(d);
+    } else if (view === 'year') {
+      // move by one year grid
+      setActiveStartDate(new Date(year + dir, month, 1));
+    } else if (view === 'decade') {
+      // move by one decade grid
+      setActiveStartDate(new Date(year + dir * 10, month, 1));
+    }
+  };
+
   return (
-    <div className="flex flex-col items-center w-full">
-      {/* 월별 총 지출/영수증 개수 */}
-      <div className="w-full text-left font-bold text-gray-800 text-base mb-2">
-        월별 총 지출: <span className="text-blue-600">{monthTotal.toLocaleString()}원</span> / 영수증 <span className="text-blue-600">{monthCount}개</span>
-      </div>
-      <div className="relative w-full max-w-md bg-white rounded-lg shadow border border-gray-200 p-4">
+  <div className="flex flex-col items-center w-full" style={{ width: '100%' }}>
+      {!hideSummary && (
+        <div className="w-full max-w-md flex items-center justify-center gap-2 mb-2 calendar-header-summary">
+          <div className="font-bold text-gray-800 text-base text-center flex-1">
+            월별 총 지출: <span className="text-blue-600">{monthTotal.toLocaleString()}원</span> / 영수증 <span className="text-blue-600">{monthCount}개</span>
+          </div>
+        </div>
+      )}
+  <div className="relative w-full rounded-lg shadow p-4 calendar-card" style={{ width: '100%' }}>
+        {/* Custom navigation (no year jump buttons) */}
+        <div className="calendar-nav">
+          <button className="nav-btn" onClick={() => shift(-1)} aria-label="prev">‹</button>
+          <div className="nav-center">
+            <span className="nav-year" onClick={() => setView('decade')}>{year}년</span>
+            <span className="nav-month" onClick={() => setView('year')}>{month + 1}월</span>
+          </div>
+          <div className="nav-right">
+            <button className="nav-btn" onClick={() => shift(1)} aria-label="next">›</button>
+            <button className="today-btn" onClick={handleToday}>Today</button>
+          </div>
+        </div>
         <Calendar
           value={calendarValue}
           onChange={setCalendarValue}
           onActiveStartDateChange={handleActiveStartDateChange}
           activeStartDate={activeStartDate}
+          showNavigation={false}
+          view={view}
+          onViewChange={({ view }) => setView(view)}
+          onClickYear={(value) => { setActiveStartDate(new Date(value.getFullYear(), month, 1)); setView('year'); }}
+          onClickMonth={(value) => { setActiveStartDate(new Date(value.getFullYear(), value.getMonth(), 1)); setView('month'); if (onMonthChange) onMonthChange(value); }}
           onClickDay={date => {
-            const key = date.toISOString().slice(0, 10);
+            // YYYY-MM-DD key 생성 (로컬 기준)
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            const key = `${yyyy}-${mm}-${dd}`;
             if (receiptsByDate[key]) onDateClick(key, receiptsByDate[key]);
           }}
           tileContent={tileContent}
-          // 캘린더 헤더에 오늘 버튼 추가
+      tileClassName={({ date, view }) => {
+            if (view !== 'month') return '';
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            const key = `${yyyy}-${mm}-${dd}`;
+            const hasReceipts = !!(receiptsByDate[key]?.length);
+
+            const classes = [];
+            const isCurrentMonth = date.getMonth() === activeStartDate.getMonth() && date.getFullYear() === activeStartDate.getFullYear();
+            if (!isCurrentMonth) {
+        classes.push('calendar-gray');
+            } else {
+              const day = date.getDay();
+        if (day === 0) classes.push('calendar-red');
+        else if (day === 6) classes.push('calendar-blue');
+        else classes.push('calendar-black');
+            }
+            if (hasReceipts) classes.push('has-receipts');
+            return classes.join(' ');
+          }}
           navigationLabel={({ label }) => (
-            <div className="flex items-center justify-between w-full">
+            <div className="flex items-center justify-center w-full">
               <span>{label}</span>
-              <button
-                type="button"
-                onClick={handleToday}
-                className="ml-2 px-2 py-1 rounded bg-blue-100 text-blue-700 text-xs font-semibold border border-blue-300 hover:bg-blue-200 transition"
-                style={{ minWidth: 40 }}
-              >오늘</button>
             </div>
           )}
         />

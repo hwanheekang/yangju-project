@@ -18,6 +18,24 @@ function App() {
     '여가활동', '의료비', '의류비', '경조사비', '기타'
   ]);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'light';
+    const stored = localStorage.getItem('theme');
+    return stored || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  }); // 'light' | 'dark'
+
+  // Initialize theme from localStorage or prefers-color-scheme
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  // Toggle theme and persist
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem('theme', next);
+    document.documentElement.setAttribute('data-theme', next);
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('jwtToken');
@@ -51,26 +69,43 @@ function App() {
       });
       const data = await res.json();
       setReceipts(data.receipts || []);
-    } catch (err) {
+      return data.receipts || [];
+  } catch {
       setReceipts([]);
+      return [];
     }
   };
 
-  if (isLoading) {
-    return <div>로딩 중...</div>;
-  }
+  if (isLoading) return null;
 
   return (
     <Router>
       <div className="app-container">
+        {/* Theme toggle - fixed at top-right of the viewport */}
+        <button className="theme-toggle" onClick={toggleTheme} aria-label="테마 전환">
+          {theme === 'dark' ? (
+            // Sun icon when in dark mode
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+            </svg>
+          ) : (
+            // Moon icon when in light mode
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M21.752 15.002A9 9 0 1112.998 2.248 7 7 0 0021.752 15.002z"/>
+            </svg>
+          )}
+        </button>
         {isLoggedIn && (
           <Sidebar onLogout={handleLogout} isOpen={sidebarOpen} onToggle={handleSidebarToggle} isLoggedIn={isLoggedIn} />
         )}
         <div className={isLoggedIn ? `main-content${sidebarOpen ? '' : ' sidebar-closed'}` : "main-content-login"}>
           <main>
-            {/* Home을 항상 맨 위에 렌더링 */}
-            {isLoggedIn && <Home fetchReceipts={fetchReceipts} receipts={receipts} categories={categories} />}
             <Routes>
+              <Route 
+                path="/" 
+                element={isLoggedIn ? <Home fetchReceipts={fetchReceipts} receipts={receipts} categories={categories} /> : <Navigate to="/login" />} 
+              />
               <Route 
                 path="/login" 
                 element={isLoggedIn ? <Navigate to="/" /> : <Login onLoginSuccess={handleLoginSuccess} />} 

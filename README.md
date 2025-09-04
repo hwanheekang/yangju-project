@@ -52,10 +52,13 @@ npm run install:all
 ```env
 # Server Configuration
 PORT=4000
+NODE_ENV=development
+# Comma-separated list for production CORS (optional). Example:
+# CORS_ORIGINS=https://your-frontend.example.com,https://admin.example.com
 
 # Database Configuration (Azure SQL Database)
 DB_SERVER=your-server-name.database.windows.net
-DB_NAME=your-database-name
+DB_DATABASE=your-database-name
 DB_USER=your-username
 DB_PASSWORD=your-password
 
@@ -70,6 +73,7 @@ AZURE_BLOB_CONTAINER_NAME=receipts
 # Azure Document Intelligence Configuration
 AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com
 AZURE_DOCUMENT_INTELLIGENCE_KEY=your-document-intelligence-key
+DI_MODEL_ID=prebuilt-receipt
 ```
 
 ### 3. 데이터베이스 설정
@@ -138,6 +142,6 @@ npm run dev:frontend
    - JWT_SECRET 환경변수 설정 확인
    - 토큰 만료 확인
 
-## �� 라이센스
+## 라이센스
 
 ISC License

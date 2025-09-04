@@ -1,3 +1,18 @@
+/* 캘린더 상단 요약 영역 스타일 */
+.calendar-header-summary {
+  margin-bottom: 12px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+/* remove unintended extra brace above */
+/* 평일/토요일/일요일/월 외 날짜 색상 */
+.calendar-black { color: var(--text) !important; }
+.calendar-blue { color: var(--primary) !important; }
+.calendar-red { color: #ef4444 !important; }
+.calendar-gray { color: var(--text-muted) !important; }
 /* 날짜와 영수증 개수 뱃지 분리 및 정렬 개선 */
 .react-calendar__tile {
   display: flex !important;
@@ -10,19 +25,15 @@
   box-sizing: border-box;
 }
 
-.react-calendar__tile abbr {
-  font-size: 1.1rem;
-  font-weight: 500;
-  margin-bottom: 4px;
-  background: none;
-  border: none;
-  color: inherit;
-  display: block;
-}
+/* 기본 날짜(큰 글씨) 숨김 */
+/* 기본 날짜(큰 글씨) 완전히 숨김 */
+/* 월 뷰에서만 날짜(큰 글씨) 숨김 */
+/* abbr 표시로 날짜 숫자 중앙 표기 */
+.react-calendar__month-view .react-calendar__tile abbr { display: inline !important; }
 
 .receipt-count-badge {
-  background: #e0f7fa;
-  color: #0078D4;
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  color: var(--primary);
   font-size: 0.85rem;
   font-weight: 500;
   padding: 2px 10px;
@@ -57,7 +68,7 @@
   margin-bottom: 0 !important;
   min-height: 0 !important;
   height: auto !important;
-  box-sizing: border-box !important;
+  box-sizing: border-box;   
 }
 
 .react-calendar__month-view__days {
@@ -90,7 +101,7 @@
 .react-calendar__tile {
   margin: 0 !important;
   padding: 0 !important;
-  border: 0 !important;
+  border: 1px solid var(--border) !important;
   line-height: 1 !important;
   min-height: 0 !important;
   height: 44px !important;
@@ -103,5 +114,50 @@
   justify-content: center !important;
   font-size: 1.1rem !important;
   position: relative !important;
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
 }
+
+/* Weekdays header styling and borders */
+.react-calendar__month-view__weekdays { font-weight: 700; text-align: center; color: var(--text); background: var(--bg-card); }
+.react-calendar__month-view__weekdays__weekday { border: 1px solid var(--border); padding: 6px 0; }
+.react-calendar__month-view__weekdays__weekday abbr { text-decoration: none; }
+
+/* Hover/active effects */
+.react-calendar__tile:hover { background: color-mix(in oklab, var(--primary) 12%, var(--bg-card)) !important; }
+.react-calendar__tile--active { background: color-mix(in oklab, var(--primary) 18%, var(--bg-card)) !important; color: var(--text) !important; }
+
+/* 영수증이 있는 날: 연한 분홍 배경 */
+.react-calendar__tile.has-receipts { background: color-mix(in oklab, #ffe6ea 70%, var(--bg-card)) !important; color: var(--text) !important; }
+
+/* 외곽선 제거: 내부 구분선만 보이게 */
+.react-calendar__month-view__weekdays__weekday { border: 0 !important; border-bottom: 1px solid var(--border) !important; }
+.react-calendar__month-view__weekdays__weekday + .react-calendar__month-view__weekdays__weekday { border-left: 1px solid var(--border) !important; }
+.react-calendar__month-view__days__day { border: 0 !important; border-left: 1px solid var(--border) !important; border-top: 1px solid var(--border) !important; }
+.react-calendar__month-view__days__day:nth-child(7n+1) { border-left-color: transparent !important; }
+.react-calendar__month-view__days__day:nth-child(-n+7) { border-top-color: transparent !important; }
+
+/* Make calendar fill container width and remove right whitespace */
+.react-calendar {
+  width: 100% !important;
+  max-width: 100% !important;
+  background: var(--bg-card) !important;
+  color: var(--text) !important;
+}
+.react-calendar__viewContainer,
+.react-calendar__month-view {
+  width: 100% !important;
+}
+
+/* Custom nav styles */
+.calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.calendar-nav .nav-btn { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.calendar-nav .nav-center { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.calendar-nav .nav-year, .calendar-nav .nav-month { cursor: pointer; user-select: none; padding: 2px 6px; border-radius: 4px; color: var(--text); }
+.calendar-nav .nav-year:hover, .calendar-nav .nav-month:hover { background: color-mix(in oklab, var(--primary) 10%, var(--bg-card)); }
+.calendar-nav .nav-right { display: flex; align-items: center; gap: 8px; }
+.calendar-nav .today-btn { background: var(--primary); color: #fff; border: none; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+
+/* 캘린더 카드 컨테이너 색상 (Calendar.jsx에서 calendar-card 클래스 사용) */
+.calendar-card { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
 

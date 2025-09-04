@@ -13,6 +13,29 @@ import { pool } from './db.js';
 dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
+
+// Environment and middleware baseline
+const isProd = process.env.NODE_ENV === 'production';
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, cb) => {
+    // allow server-to-server or same-origin without Origin header
+    if (!origin) return cb(null, true);
+    // allow all origins in non-prod for easier local dev
+    if (!isProd) return cb(null, true);
+    // in prod, restrict to configured list (empty list allows all)
+    if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('CORS not allowed'));
+  },
+  credentials: true,
+}));
+app.use(helmet());
+app.use(morgan(isProd ? 'combined' : 'dev'));
+app.use(express.json({ limit: '2mb' }));
 app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
@@ -39,8 +62,10 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
     const modelId = process.env.DI_MODEL_ID || 'prebuilt-receipt';
     const url = `${endpoint}/formrecognizer/documentModels/${modelId}:analyze?api-version=2023-07-31`;
     const body = { urlSource: imageUrl };
-    console.log('Azure Document Intelligence 요청 URL:', url);
-    console.log('분석 대상 이미지 URL:', imageUrl);
+    if (!isProd) {
+      console.log('Azure Document Intelligence URL:', url);
+      console.log('Analyzing image URL:', imageUrl);
+    }
     let response;
     try {
       response = await axios.post(url, body, {
@@ -50,13 +75,15 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
         }
       });
     } catch (err) {
-      console.error('Azure Document Intelligence API 호출 실패:', err?.response?.status, err?.response?.statusText);
-      console.error('에러 응답 데이터:', err?.response?.data);
+      console.error('Document Intelligence call failed:', err?.response?.status, err?.response?.statusText);
+      if (!isProd) console.error('Error response data:', err?.response?.data);
       throw err;
     }
-    console.log('Azure 응답 status:', response.status, response.statusText);
-    console.log('Azure 응답 headers:', response.headers);
-    console.log('Azure 응답 data:', response.data);
+    if (!isProd) {
+      console.log('Azure status:', response.status, response.statusText);
+      console.log('Azure headers:', response.headers);
+      console.log('Azure data:', response.data);
+    }
 
     // 202 Accepted → operation-location 폴링
     if (response.status === 202 && response.headers['operation-location']) {
@@ -80,7 +107,7 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
             return res.status(500).json({ error: 'AI 분석 실패', details: pollRes.data });
           }
         } catch (e) {
-          console.error('Document Intelligence 폴링 중 에러:', e?.response?.data || e);
+          if (!isProd) console.error('Document Intelligence polling error:', e?.response?.data || e);
         }
       }
       if (!pollResult) {
@@ -93,21 +120,18 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
       return res.status(500).json({ error: 'AI 분석 요청 실패', details: response.data });
     }
     let receiptData = {};
-    // 분석 결과 전체를 콘솔에 항상 출력 (빈 값/undefined/null 모두 확인)
-    try {
-      console.log('Document Intelligence result typeof:', typeof result);
-      console.log('Document Intelligence result raw:', result);
-      console.log('Document Intelligence result JSON:', JSON.stringify(result, null, 2));
-    } catch (e) {
-      console.log('Document Intelligence result (raw print failed):', result);
+    // Verbose logging in non-prod only
+    if (!isProd) {
+      try {
+        console.log('DI result typeof:', typeof result);
+        console.log('DI result JSON:', JSON.stringify(result, null, 2));
+      } catch (_) {}
     }
     const docResult = result?.analyzeResult?.documents?.[0];
     if (docResult && docResult.fields) {
       const fields = docResult.fields;
-      try {
-        console.log('Parsed fields:', JSON.stringify(fields, null, 2));
-      } catch (e) {
-        console.log('Parsed fields (raw):', fields);
+      if (!isProd) {
+        try { console.log('Parsed fields:', JSON.stringify(fields, null, 2)); } catch (_) {}
       }
       // valueString 우선, 없으면 content 사용
       const storeName = fields.store_name?.valueString || fields.store_name?.content || '';
@@ -131,11 +155,11 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
         source_blob_url: imageUrl
       };
     } else {
-      console.log('No docResult or fields found in Document Intelligence response.');
+      if (!isProd) console.log('No docResult or fields found in DI response.');
     }
     res.json({ receipt: receiptData, imageUrl });
   } catch (err) {
-    console.error('Upload & Analyze error:', err);
+    console.error('Upload & Analyze error:', err?.message || err);
     res.status(500).json({ error: 'Failed to upload or analyze image', details: err.message });
   }
 });
@@ -173,17 +197,15 @@ app.post('/api/upload-image', upload.single('image'), async (req, res) => {
 // auth.js와 receipts.js에서 export default router;를 사용했다면 아래처럼 중괄호 없이 가져와야 합니다.
 import { authRouter } from './auth.js';
 import { receiptsRouter } from './receipts.js';
+import { preferencesRouter } from './preferences.js';
+import { analyticsRouter } from './analytics.js';
 
 
 // 2. 앱 생성 및 환경변수 로드
 
 
 
-// 3. 미들웨어 설정
-app.use(cors({ origin: true, credentials: true }));
-app.use(helmet());
-app.use(morgan('dev'));
-app.use(express.json());
+// 3. 미들웨어 설정 (moved to top for clarity)
 
 
 // 4. API 라우트 설정
@@ -253,18 +275,16 @@ app.get('/test-di', async (_, res) => {
   try {
     const endpoint = (process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT || '').replace(/\/$/, '');
     const apiKey = process.env.AZURE_DOCUMENT_INTELLIGENCE_KEY;
+    if (!endpoint || !apiKey) return res.status(500).json({ status: 'DISCONNECTED', error: 'Missing configuration' });
     const url = `${endpoint}/formrecognizer/documentModels/prebuilt-receipt:analyze?api-version=2023-07-31`;
-    const body = { urlSource: 'https://raw.githubusercontent.com/Azure-Samples/cognitive-services-REST-api-samples/master/curl/form-recognizer/rest-api/receipt.png' }; // 실제 테스트 가능한 이미지 URL로 변경
-
-    const response = await axios.post(url, body, {
-      headers: {
-        'Ocp-Apim-Subscription-Key': apiKey,
-        'Content-Type': 'application/json'
-      }
+    // Caller should pass ?testImageUrl=... otherwise use a known minimal resource
+    const imageUrl = req?.query?.testImageUrl || 'https://aka.ms/azai/receipt-sample';
+    const response = await axios.post(url, { urlSource: imageUrl }, {
+      headers: { 'Ocp-Apim-Subscription-Key': apiKey, 'Content-Type': 'application/json' }
     });
-    res.status(200).json({ status: 'CONNECTED', data: response.data });
+    res.status(200).json({ status: 'CONNECTED', data: isProd ? undefined : response.data });
   } catch (err) {
-    res.status(500).json({ status: 'DISCONNECTED', error: err.message, details: err.response?.data });
+    res.status(500).json({ status: 'DISCONNECTED', error: err.message, details: isProd ? undefined : err.response?.data });
   }
 });
 
@@ -319,6 +339,8 @@ app.post('/api/document-intelligence', async (req, res) => {
 // --- 분리된 API 라우터들 연결 ---
 app.use('/api/auth', authRouter);
 app.use('/api/receipts', receiptsRouter);
+app.use('/api/preferences', preferencesRouter);
+app.use('/api/analytics', analyticsRouter);
 
 
 // 5. 서버 실행

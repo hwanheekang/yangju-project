@@ -23,12 +23,9 @@ try {
   // Create and connect the pool on module load
   pool = new sql.ConnectionPool(dbConfig);
   await pool.connect();
-  // 실제 연결된 DB명 출력
+  // Minimal connect log
   const dbNameResult = await pool.request().query('SELECT DB_NAME() AS dbname');
-  console.log('Database connected successfully. Connected DB:', dbNameResult.recordset[0].dbname);
-  // 실제 테이블 목록 출력
-  const tablesResult = await pool.request().query("SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'");
-  console.log('Tables in DB:', tablesResult.recordset.map(t => `${t.TABLE_SCHEMA}.${t.TABLE_NAME}`).join(', '));
+  console.log('Database connected:', dbNameResult.recordset[0].dbname);
 } catch (err) {
   console.error('Database Connection Failed! Bad Config:', err);
   process.exit(1);

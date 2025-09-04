@@ -100,7 +100,7 @@ receiptsRouter.post('/', async (req, res) => {
 receiptsRouter.put('/:id', async (req, res) => {
   const userId = req.user.id;
   const receiptId = req.params.id;
-  let { store_name, total_amount, transaction_date, category, source_blob_url } = req.body;
+  let { store_name, total_amount, transaction_date, category, source_blob_url, memo } = req.body;
   try {
     // robust: total_amount 숫자 변환
     total_amount = Math.abs(parseFloat(total_amount) || 0);
@@ -138,8 +138,9 @@ receiptsRouter.put('/:id', async (req, res) => {
     request.input('transaction_date', sql.DateTime2, transaction_date);
     request.input('category', sql.NVarChar, category);
     request.input('source_blob_url', sql.NVarChar, existingSourceBlobUrl);
+    request.input('memo', sql.NVarChar, memo ?? null);
     const result = await request.query(
-      `UPDATE Receipts SET store_name=@store_name, total_amount=@total_amount, transaction_date=@transaction_date, category=@category, source_blob_url=@source_blob_url, updated_at=GETDATE()
+      `UPDATE Receipts SET store_name=@store_name, total_amount=@total_amount, transaction_date=@transaction_date, category=@category, source_blob_url=@source_blob_url, memo=@memo, updated_at=GETDATE()
        OUTPUT INSERTED.*
        WHERE id=@id AND user_id=@user_id`
     );

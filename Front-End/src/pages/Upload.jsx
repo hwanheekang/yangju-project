@@ -141,6 +141,18 @@ export default function Upload({ onClose, onUploadSuccess }) {
                 ))}
               </select>
             </div>
+            <div style={{ marginTop: 12 }}>
+              <label><strong>메모:</strong>
+                <input
+                  type="text"
+                  name="memo"
+                  value={ocrResult.memo || ''}
+                  onChange={e => setOcrResult({ ...ocrResult, memo: e.target.value })}
+                  style={{ marginLeft: 8, width: '80%' }}
+                  placeholder="메모를 입력하세요"
+                />
+              </label>
+            </div>
           </div>
           <p>내용이 맞으신가요?</p>
           <button onClick={handleFinalConfirm} disabled={isLoading}>

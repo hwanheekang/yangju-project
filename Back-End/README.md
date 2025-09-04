@@ -80,6 +80,7 @@ show-me-the-money-backend/
 
 2. **환경변수 설정**
    - `.env.example`을 복사해 `.env` 파일 생성 후, 실제 DB 정보와 JWT 시크릿 입력
+   - 배포 시 `CORS_ORIGINS`(쉼표 구분)로 허용할 프론트엔드 도메인을 지정하세요.
 
 3. **DB 테이블 생성**
    - `sql/schema.sql`을 Azure SQL Database에 실행
