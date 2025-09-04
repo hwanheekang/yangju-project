@@ -17,8 +17,6 @@ export default function Home({ fetchReceipts, receipts, categories }) {
   // 수정 중인 필드 상태 추가
   const [editFields, setEditFields] = useState({ store_name: '', transaction_date: '', total_amount: '', category: '' });
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   // 캘린더 날짜 클릭 시 모달
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [calendarReceipts, setCalendarReceipts] = useState([]);
@@ -30,8 +28,8 @@ export default function Home({ fetchReceipts, receipts, categories }) {
     try {
       await apiFetch(`/receipts/${receiptId}`, { method: 'DELETE' });
       await fetchReceipts();
-    } catch (err) {
-      setError('삭제에 실패했습니다: ' + err.message);
+    } catch {
+      // 삭제 에러 무시 또는 alert 등으로 대체 가능
     }
   };
 
@@ -56,13 +54,12 @@ export default function Home({ fetchReceipts, receipts, categories }) {
       setEditId(null);
       setEditFields({ store_name: '', transaction_date: '', total_amount: '', category: '' });
       await fetchReceipts();
-    } catch (err) {
-      setError('수정에 실패했습니다: ' + err.message);
+    } catch {
+      // 수정 에러 무시 또는 alert 등으로 대체 가능
     }
   };
 
   // 전체 지출 합계 계산
-  const total = receipts.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
 
   // 모달 열기/닫기 함수
   const openModal = () => setIsModalOpen(true);
@@ -70,16 +67,13 @@ export default function Home({ fetchReceipts, receipts, categories }) {
 
   return (
     <div className="dashboard-container">
-      <div className="dashboard-header card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '32px 32px 0 32px', background: 'var(--bg-card)' }}>
+      <div className="dashboard-header card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px', background: 'var(--bg-card)' }}>
         <div>
           <h2 style={{ color: 'var(--primary)', margin: 0, fontWeight: 700, fontSize: '2.1rem' }}>AI 가계부</h2>
-          <div className="text-primary" style={{ fontSize: '1.3rem', fontWeight: 600, marginTop: 12 }}>
-            전체 지출내역: {total.toLocaleString()}원
-          </div>
         </div>
-        <button className="btn" onClick={openModal}>영수증 추가하기</button>
+  <button className="btn" style={{margin: 0}} onClick={openModal}>영수증 추가하기</button>
       </div>
-      <div className="dashboard-main" style={{ display: 'flex', gap: 32, padding: '0 32px 32px 32px', minHeight: 0 }}>
+  <div className="dashboard-main" style={{ display: 'flex', gap: 32, padding: '32px 32px 32px', minHeight: 0, alignItems: 'center' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* 캘린더 추가 */}
           <ReceiptCalendar
@@ -90,55 +84,6 @@ export default function Home({ fetchReceipts, receipts, categories }) {
               setCalendarModalOpen(true);
             }}
           />
-          <div className="receipt-list-section card" style={{ padding: 24, maxHeight: 600, display: 'flex', flexDirection: 'column', overflowY: 'auto' }}>
-            <h3 style={{ color: 'var(--primary)', marginBottom: 18, fontWeight: 700, fontSize: '1.2rem' }}>영수증 목록</h3>
-            <div style={{ width: '100%', minHeight: 120 }}>
-              {loading ? (
-                <p className="text-muted">로딩 중...</p>
-              ) : error ? (
-                <p style={{ color: 'red' }}>{error}</p>
-              ) : (
-                receipts.length === 0 ? (
-                  <div className="text-muted" style={{ textAlign: 'center', marginTop: 40 }}>영수증이 없습니다.</div>
-                ) : (
-                  receipts.map((receipt) => (
-                    <div key={receipt.id} style={styles.receiptCard} className="receiptCard">
-                      <div style={styles.receiptHeader} className="receiptHeader">
-                        <h4 style={{ margin: 0 }}>{receipt.store_name || '상호명 없음'}</h4>
-                        <span style={styles.amount} className="amount">{Number(receipt.total_amount).toLocaleString()}원</span>
-                      </div>
-                      <div style={styles.receiptDetails} className="receiptDetails">
-                        <p style={{ margin: '4px 0' }}><strong>날짜:</strong> {receipt.transaction_date}</p>
-                        <div style={styles.categorySection} className="categorySection">
-                          <label><strong>카테고리:</strong> {receipt.category || '분류 대기'}</label>
-                          <button style={styles.editBtn} className="editBtn" onClick={() => handleEditClick(receipt)}>수정</button>
-                          <button style={styles.deleteBtn} className="deleteBtn" onClick={() => handleDelete(receipt.id)}>삭제</button>
-                        </div>
-                        {editId === receipt.id && (
-                          <div style={{ marginTop: '8px', background: '#eef', padding: '10px', borderRadius: '6px' }}>
-                            <div><label>상호명: <input type="text" value={editFields.store_name} onChange={e => setEditFields(f => ({ ...f, store_name: e.target.value }))} className="input" style={styles.input} /></label></div>
-                            <div><label>날짜: <input type="date" value={editFields.transaction_date} onChange={e => setEditFields(f => ({ ...f, transaction_date: e.target.value }))} className="input" style={styles.input} /></label></div>
-                            <div><label>금액: <input type="number" value={editFields.total_amount} onChange={e => setEditFields(f => ({ ...f, total_amount: e.target.value }))} className="input" style={styles.input} /></label></div>
-                            <div><label>카테고리:
-                              <select value={editFields.category} onChange={e => setEditFields(f => ({ ...f, category: e.target.value }))} className="categorySelect" style={styles.categorySelect}>
-                                {CATEGORIES.map(category => (
-                                  <option key={category} value={category}>{category}</option>
-                                ))}
-                              </select>
-                            </label></div>
-                            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-                              <button style={styles.editBtn} className="editBtn" onClick={handleEditSave}>완료</button>
-                              <button style={styles.deleteBtn} className="deleteBtn" onClick={() => setEditId(null)}>취소</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )
-              )}
-            </div>
-          </div>
         </div>
       </div>
       <Modal isOpen={isModalOpen} onClose={closeModal}>
@@ -161,7 +106,27 @@ export default function Home({ fetchReceipts, receipts, categories }) {
                   <p style={{ margin: '4px 0' }}><strong>날짜:</strong> {receipt.transaction_date}</p>
                   <div style={styles.categorySection} className="categorySection">
                     <label><strong>카테고리:</strong> {receipt.category || '분류 대기'}</label>
+                    <button style={styles.editBtn} className="editBtn" onClick={() => handleEditClick(receipt)}>수정</button>
+                    <button style={styles.deleteBtn} className="deleteBtn" onClick={() => handleDelete(receipt.id)}>삭제</button>
                   </div>
+                  {editId === receipt.id && (
+                    <div style={{ marginTop: '8px', background: '#eef', padding: '10px', borderRadius: '6px' }}>
+                      <div><label>상호명: <input type="text" value={editFields.store_name} onChange={e => setEditFields(f => ({ ...f, store_name: e.target.value }))} className="input" style={styles.input} /></label></div>
+                      <div><label>날짜: <input type="date" value={editFields.transaction_date} onChange={e => setEditFields(f => ({ ...f, transaction_date: e.target.value }))} className="input" style={styles.input} /></label></div>
+                      <div><label>금액: <input type="number" value={editFields.total_amount} onChange={e => setEditFields(f => ({ ...f, total_amount: e.target.value }))} className="input" style={styles.input} /></label></div>
+                      <div><label>카테고리:
+                        <select value={editFields.category} onChange={e => setEditFields(f => ({ ...f, category: e.target.value }))} className="categorySelect" style={styles.categorySelect}>
+                          {CATEGORIES.map(category => (
+                            <option key={category} value={category}>{category}</option>
+                          ))}
+                        </select>
+                      </label></div>
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                        <button style={styles.editBtn} className="editBtn" onClick={handleEditSave}>완료</button>
+                        <button style={styles.deleteBtn} className="deleteBtn" onClick={() => setEditId(null)}>취소</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ))
