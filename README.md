@@ -7,141 +7,117 @@ React와 Node.js를 사용한 영수증 관리 웹 애플리케이션입니다.
 - 사용자 인증 (로그인/회원가입)
 - 영수증 이미지 업로드 및 AI 분석
 - 영수증 카테고리 분류
-- 영수증 목록 조회 및 관리
-- Azure Document Intelligence를 활용한 OCR
+# 양주 영수증 관리 시스템 (AI 가계부)
 
-## 📁 프로젝트 구조
+> React(Vite) + Node/Express + Azure SQL/Blob/Document Intelligence 로 만든 영수증 관리/분석 웹앱
+
+---
+
+## ✨ 주요 기능
+
+- 로그인/회원가입(JWT)
+- 영수증 업로드 → Azure Document Intelligence로 자동 인식(OCR)
+- 영수증 CRUD, 메모/카테고리 편집, 삭제
+- 대시보드(캘린더/월별 카테고리 요약/카테고리별 지출 비율)
+- 드래그앤드롭으로 카드 재배치(사용자별 레이아웃 선호 저장)
+- 라이트/다크 테마(로컬 저장 + 시스템 테마 감지)
+
+## � 폴더 구조
 
 ```
-yangju-project/
-├── Back-End/          # Node.js + Express 백엔드
-│   ├── src/
-│   │   ├── app.js     # 메인 서버 파일
-│   │   ├── auth.js    # 인증 관련 라우터
-│   │   ├── receipts.js # 영수증 관련 라우터
-│   │   ├── db.js      # 데이터베이스 연결
-│   │   └── middleware/
-│   │       └── auth.js # 인증 미들웨어
-│   ├── sql/
-│   │   └── schema.sql # 데이터베이스 스키마
-│   └── package.json
-├── Front-End/         # React 프론트엔드
-│   ├── src/
-│   │   ├── App.jsx    # 메인 앱 컴포넌트
-│   │   ├── api.js     # API 통신 모듈
-│   │   ├── pages/     # 페이지 컴포넌트들
-│   │   └── components/ # 재사용 컴포넌트들
-│   └── package.json
-└── package.json       # 프로젝트 루트 설정
+.yangju-project
+├─ Back-End/                 # Node/Express API 서버
+│  ├─ src/
+│  │  ├─ app.js             # 서버 엔트리 (보안/로깅/CORS/업로드/AI 분석)
+│  │  ├─ auth.js            # 인증 라우트 (register/login)
+│  │  ├─ receipts.js        # 영수증 CRUD
+│  │  ├─ analytics.js       # 월별 카테고리 집계 API
+│  │  ├─ preferences.js     # 사용자 레이아웃 선호 저장/조회
+│  │  ├─ db.js              # MSSQL 커넥션 풀
+│  │  └─ middleware/auth.js # JWT 미들웨어
+│  ├─ sql/schema.sql        # DB 스키마
+│  ├─ env.example           # 환경변수 예시
+│  └─ package.json
+├─ Front-End/                # React(Vite) SPA
+│  ├─ src/
+│  │  ├─ App.jsx            # 앱 셸/라우팅/테마 토글
+│  │  ├─ pages/             # Home/Login/Statistics 등
+│  │  ├─ components/        # Sidebar/Calendar/Modal 등
+│  │  ├─ api.js             # 백엔드 API 래퍼(fetch)
+│  │  └─ App.css            # 전역 스타일 + 테마 변수
+│  └─ package.json
+└─ package.json              # 루트 스크립트(동시 실행/설치)
 ```
 
-## 🛠️ 설치 및 실행
+## ⚙️ 빠른 시작
 
-### 1. 의존성 설치
-
+### 1) 의존성 설치
 ```bash
-# 프로젝트 루트에서 모든 의존성 설치
 npm run install:all
 ```
 
-### 2. 환경변수 설정
-
-#### 백엔드 환경변수 설정
-`Back-End` 폴더에 `.env` 파일을 생성하고 다음 내용을 추가하세요:
-
+### 2) 환경변수 설정(백엔드)
+`Back-End/.env` 파일 생성 — 전체 예시는 `Back-End/env.example` 참조
 ```env
-# Server Configuration
 PORT=4000
 NODE_ENV=development
-# Comma-separated list for production CORS (optional). Example:
-# CORS_ORIGINS=https://your-frontend.example.com,https://admin.example.com
-
-# Database Configuration (Azure SQL Database)
-DB_SERVER=your-server-name.database.windows.net
-DB_DATABASE=your-database-name
-DB_USER=your-username
+DB_SERVER=your-server.database.windows.net
+DB_DATABASE=your-db
+DB_USER=your-user
 DB_PASSWORD=your-password
-
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key-here
-
-# Azure Storage Configuration
-AZURE_STORAGE_ACCOUNT_NAME=your-storage-account-name
-AZURE_STORAGE_ACCOUNT_KEY=your-storage-account-key
+JWT_SECRET=your-jwt-secret
+AZURE_STORAGE_ACCOUNT_NAME=your-storage
+AZURE_STORAGE_ACCOUNT_KEY=your-key
 AZURE_BLOB_CONTAINER_NAME=receipts
-
-# Azure Document Intelligence Configuration
-AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-resource.cognitiveservices.azure.com
-AZURE_DOCUMENT_INTELLIGENCE_KEY=your-document-intelligence-key
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=https://your-cog.cognitiveservices.azure.com
+AZURE_DOCUMENT_INTELLIGENCE_KEY=your-docintel-key
 DI_MODEL_ID=prebuilt-receipt
 ```
 
-### 3. 데이터베이스 설정
+### 3) 데이터베이스 준비
+- Azure SQL에 접속해 `Back-End/sql/schema.sql` 실행
 
-Azure SQL Database에서 `Back-End/sql/schema.sql` 파일의 내용을 실행하여 테이블을 생성하세요.
-
-### 4. 애플리케이션 실행
-
+### 4) 개발 서버 실행
 ```bash
-# 프론트엔드와 백엔드를 동시에 실행
+# 프론트+백 동시에실행
 npm run dev
-```
 
-또는 개별적으로 실행:
-
-```bash
-# 백엔드만 실행
+# 또는 개별 실행
 npm run dev:backend
-
-# 프론트엔드만 실행
 npm run dev:frontend
 ```
 
-## 🌐 접속 정보
+- FE: http://localhost:5173
+- BE: http://localhost:4000
 
-- **프론트엔드**: http://localhost:5173
-- **백엔드**: http://localhost:4000
+## 🧩 주요 API 요약
 
-## 🔧 주요 API 엔드포인트
+- 인증
+   - `POST /api/auth/register`
+   - `POST /api/auth/login`
+- 영수증
+   - `GET /api/receipts`
+   - `POST /api/receipts`
+   - `PUT /api/receipts/:id`
+   - `PATCH /api/receipts/:id`
+   - `DELETE /api/receipts/:id`
+- 분석/환경설정
+   - `GET /api/analytics/monthly-category?year=YYYY&month=MM`
+   - `GET /api/preferences/layout`
+   - `PUT /api/preferences/layout`
+- 업로드/AI 분석
+   - `POST /api/upload-and-analyze` (Blob 업로드 → Document Intelligence 분석)
 
-### 인증
-- `POST /api/auth/register` - 회원가입
-- `POST /api/auth/login` - 로그인
+## 🛡️ 보안/운영 팁
+- 프로덕션에서 `NODE_ENV=production` + `CORS_ORIGINS` 환경변수로 출처 제한
+- 실 비밀키는 절대 커밋 금지(.env 로컬/배포 비밀 저장소 사용)
+- DB 연결 실패 시 서버가 종료됩니다. 네트워크/인증/방화벽을 먼저 확인하세요.
 
-### 영수증 관리
-- `GET /api/receipts` - 영수증 목록 조회
-- `POST /api/receipts` - 영수증 등록
-- `PATCH /api/receipts/:id` - 영수증 카테고리 업데이트
-- `PUT /api/receipts/:id` - 영수증 수정
-- `DELETE /api/receipts/:id` - 영수증 삭제
+## 💡 트러블슈팅
+- FE 흰 화면/깜빡임: index.html에서 초기 테마 선적용, App.css 배경은 `var(--bg)` 사용. 강력 새로고침(Ctrl+F5)
+- 차트 렌더 에러(radialLinear): Pie 차트의 radial 스케일 옵션 제거(반영됨)
+- CORS 차단: 개발은 오픈, 운영은 `CORS_ORIGINS`에 허용 도메인 나열
 
-### 기타
-- `POST /api/document-intelligence` - Azure Document Intelligence API
-- `GET /api/blob-sas` - Azure Blob Storage SAS 토큰 발급
+## 라이선스
+ISC
 
-## 🔒 보안
-
-- JWT 토큰 기반 인증
-- 모든 API 요청에 인증 미들웨어 적용
-- 사용자별 데이터 분리
-
-## 🐛 문제 해결
-
-### 일반적인 문제들
-
-1. **데이터베이스 연결 실패**
-   - Azure SQL Database 설정 확인
-   - 방화벽 규칙 확인
-   - 환경변수 설정 확인
-
-2. **CORS 오류**
-   - 백엔드 서버가 실행 중인지 확인
-   - 프록시 설정 확인
-
-3. **인증 오류**
-   - JWT_SECRET 환경변수 설정 확인
-   - 토큰 만료 확인
-
-## 라이센스
-
-ISC License
