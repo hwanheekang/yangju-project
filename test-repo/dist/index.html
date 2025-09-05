@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vite + React</title>
+    <style>
+      /* Prevent white flash before external CSS loads */
+      html, body, #root { background: #f7f9fc; color: #222c3a; min-height: 100%; }
+      html[data-theme='dark'], html[data-theme='dark'] body, html[data-theme='dark'] #root { background: #1e293b; color: #e7eaf0; }
+    </style>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('theme');
+          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var initial = stored || (prefersDark ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', initial);
+        } catch (e) { /* noop */ }
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-O9RYFw21.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CvrP4IzL.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
