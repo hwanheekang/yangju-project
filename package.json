@@ -7,7 +7,7 @@
     "dev:backend": "cd Back-End && npm run dev",
     "dev:frontend": "cd Front-End && npm run dev",
     "install:all": "npm install && cd Back-End && npm install && cd ../Front-End && npm install",
-    "build": "cd Front-End && npm run build",
+    "build": "cd Front-End && npm install && npm run build",
     "start": "cd Back-End && npm start"
   },
   "devDependencies": {
