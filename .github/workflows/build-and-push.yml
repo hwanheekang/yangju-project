@@ -1,4 +1,4 @@
-name: Build and Push Docker Images to ACR1
+name: Build and Push Docker Images to ACR
 
 on:
   push:
