@@ -1,3 +1,16 @@
+/* SUN 요일 헤더(일요일)만 빨간색으로 */
+.react-calendar__month-view__weekdays__weekday:nth-child(1) abbr {
+  color: #ef4444 !important;
+}
+
+/* 일요일(SUN) 컬럼 날짜만 빨간색으로 */
+.react-calendar__month-view__days__day:nth-child(7n+1) {
+  color: #ef4444 !important;
+}
+/* 토요일(SAT) 컬럼 날짜만 파란색으로 */
+.react-calendar__month-view__days__day:nth-child(7n) {
+  color: #2563eb !important;
+}
 /* 캘린더 상단 요약 영역 스타일 */
 .calendar-header-summary {
   margin-bottom: 12px;
@@ -10,9 +23,13 @@
 /* remove unintended extra brace above */
 /* 평일/토요일/일요일/월 외 날짜 색상 */
 .calendar-black { color: var(--text) !important; }
-.calendar-blue { color: var(--primary) !important; }
+.calendar-blue { color: #2563eb !important; }
+/* SAT 요일 헤더(토요일)만 파란색으로 */
+.react-calendar__month-view__weekdays__weekday:nth-child(7) abbr {
+  color: #2563eb !important;
+}
 .calendar-red { color: #ef4444 !important; }
-.calendar-gray { color: var(--text-muted) !important; }
+.calendar-gray { color: #c0c0c0 !important; opacity: 0.6 !important; }
 /* 날짜와 영수증 개수 뱃지 분리 및 정렬 개선 */
 .react-calendar__tile {
   display: flex !important;

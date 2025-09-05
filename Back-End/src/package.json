@@ -19,5 +19,8 @@
     "bcryptjs": "^2.4.3",
     "@azure/storage-blob": "^12.18.0",
     "axios": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

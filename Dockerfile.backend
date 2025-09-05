@@ -1,5 +1,5 @@
-# 경량 알파인 리눅스 기반의 Node.js 18 이미지를 사용
-FROM node:18-alpine
+# 경량 알파인 리눅스 기반의 Node.js 20 이미지를 사용
+FROM node:20-alpine
 
 # 보안/최적화 기본값
 ENV NODE_ENV=production

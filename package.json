@@ -16,4 +16,8 @@
   "keywords": ["receipt", "management", "react", "nodejs", "express"],
   "author": "",
   "license": "ISC"
+,
+  "engines": {
+    "node": ">=20"
+  }
 }

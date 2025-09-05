@@ -86,6 +86,7 @@ export default function ReceiptCalendar({ receipts, onDateClick, onMonthChange, 
           </div>
         </div>
         <Calendar
+          locale="en-US"
           value={calendarValue}
           onChange={setCalendarValue}
           onActiveStartDateChange={handleActiveStartDateChange}

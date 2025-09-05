@@ -4,6 +4,45 @@
  */
 const getToken = () => localStorage.getItem('jwtToken');
 
+/* =========================
+   API Base URL Resolver
+   ========================= */
+const RUNTIME_CFG =
+  (typeof window !== 'undefined' && window.__APP_CONFIG__) || {};
+
+const {
+  VITE_BACKEND_MODE,
+  VITE_API_BASE,
+  VITE_API_PORT,
+  VITE_API_PREFIX = '/api',
+} = import.meta.env || {};
+
+const stripTrailingSlash = (s) =>
+  typeof s === 'string' && s.endsWith('/') ? s.slice(0, -1) : s;
+
+const joinPath = (base, path) => {
+  const b = stripTrailingSlash(base ?? '');
+  const p = path?.startsWith('/') ? path : `/${path ?? ''}`;
+  return `${b}${p}`;
+};
+
+const pickApiBase = () => {
+  // 1) 런타임 주입이 가장 우선
+  if (RUNTIME_CFG.apiBase) return stripTrailingSlash(RUNTIME_CFG.apiBase);
+
+  // 2) 절대 URL이 환경변수로 지정된 경우(Web App 등)
+  if (VITE_API_BASE) return stripTrailingSlash(VITE_API_BASE);
+
+  // 3) VMSS 모드: 현재 호스트 + 포트 + 프리픽스
+  if (VITE_BACKEND_MODE === 'vmss' && VITE_API_PORT) {
+    const origin = `${location.protocol}//${location.hostname}:${VITE_API_PORT}`;
+    return joinPath(origin, VITE_API_PREFIX || '/api');
+  }
+
+  // 4) 기본: 같은 오리진의 /api (리버스 프록시 전제)
+  return VITE_API_PREFIX || '/api';
+};
+
 /**
  * 백엔드 API에 요청을 보내는 범용 함수
  * @param {string} endpoint - '/auth/login'과 같이 /api 뒤에 붙는 경로
@@ -23,9 +62,14 @@ const apiFetch = async (endpoint, options = {}) => {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  const base = pickApiBase();
+  const url =
+    base.startsWith('http') || base.startsWith('//')
+      ? joinPath(base, endpoint) // 절대 URL
+      : `${stripTrailingSlash(base)}${endpoint}`; // 상대(/api)
 
-  // Vite 프록시가 기본 URL('http://localhost:4000')을 처리해줍니다.
-  const response = await fetch(`/api${endpoint}`, {
+  // 개발 환경에서는 Vite 프록시가 /api를 처리합니다.
+  const response = await fetch(url, {
     ...options,
     headers,
   });
@@ -35,7 +79,7 @@ const apiFetch = async (endpoint, options = {}) => {
     let errorData = { message: '', details: '' };
     try {
       errorData = await response.json();
-    } catch (_){
+  } catch {
       // 응답 본문이 JSON이 아닐 때 무시
     }
     const errorMsg = errorData.message || errorData.error || `HTTP 에러! 상태: ${response.status}`;

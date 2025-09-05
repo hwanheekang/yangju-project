@@ -57,8 +57,12 @@ const ExpensePieChart = ({ receipts, selectedMonth, showTitle = true }) => {
                   display: true,
                 },
                 tooltip: {
-                  titleColor: textColor,
-                  bodyColor: textColor,
+                  backgroundColor: isDark ? 'rgba(2,6,23,0.9)' : '#ffffff',
+                  titleColor: isDark ? textColor : '#000000',
+                  bodyColor: isDark ? textColor : '#000000',
+                  borderColor: borderColor,
+                  borderWidth: 1,
+                  displayColors: false,
                   callbacks: {
                     label: ctx => {
                       const val = ctx.parsed;

@@ -29,6 +29,60 @@ export default function Home({ fetchReceipts, receipts }) {
   const [layoutOrder, setLayoutOrder] = useState(['calendar','chart','monthlyCategory']);
   // 드래그 오버 상태(시각화)
   const [dragOverId, setDragOverId] = useState(null);
+  
+  // Pull-to-refresh 상태
+  const [isPulling, setIsPulling] = useState(false);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [startY, setStartY] = useState(0);
+
+  // Header의 전역 버튼 클릭 이벤트 수신
+  React.useEffect(() => {
+    const handler = () => setIsModalOpen(true);
+    window.addEventListener('openUploadModal', handler);
+    return () => window.removeEventListener('openUploadModal', handler);
+  }, []);
+
+  // Pull-to-refresh 이벤트 핸들러 - 최상단에서만 동작
+  const handleTouchStart = (e) => {
+    // 스크롤이 최상단(0)에 있을 때만 pull-to-refresh 시작
+    if (window.scrollY === 0 && document.documentElement.scrollTop === 0) {
+      setStartY(e.touches[0].clientY);
+      setIsPulling(true);
+    }
+  };
+
+  const handleTouchMove = (e) => {
+    // 풀링 중이고 최상단에 있을 때만 처리
+    if (!isPulling || window.scrollY !== 0 || document.documentElement.scrollTop !== 0) {
+      return;
+    }
+    
+    const currentY = e.touches[0].clientY;
+    const diff = currentY - startY;
+    
+    // 아래로 당기는 경우에만 (위로 스크롤 방지)
+    if (diff > 0) {
+      e.preventDefault(); // 기본 스크롤 방지
+      setPullDistance(Math.min(diff, 120)); // 최대 120px까지
+    } else {
+      // 위로 당기는 경우 pull-to-refresh 취소
+      setIsPulling(false);
+      setPullDistance(0);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    // 80px 이상 당기고 최상단에 있을 때만 새로고침 실행
+    if (isPulling && pullDistance > 80 && 
+        window.scrollY === 0 && document.documentElement.scrollTop === 0) {
+      fetchReceipts();
+    }
+    
+    // 상태 초기화
+    setIsPulling(false);
+    setPullDistance(0);
+    setStartY(0);
+  };
 
   // 최초 로드 시 사용자 선호도 불러오기
   React.useEffect(() => {
@@ -147,7 +201,7 @@ export default function Home({ fetchReceipts, receipts }) {
   // 전체 지출 합계 계산
 
   // 모달 열기/닫기 함수
-  const openModal = () => setIsModalOpen(true);
+  // openModal은 Header에서 전역 이벤트로 대체
   const closeModal = () => setIsModalOpen(false);
 
   // 현재 월 지출 합계/건수 (블록 헤더용)
@@ -159,13 +213,36 @@ export default function Home({ fetchReceipts, receipts }) {
   const monthCount = monthlyFiltered.length;
 
   return (
-    <div className="dashboard-container">
-      <div className="dashboard-header card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 32px', background: 'var(--bg-card)' }}>
-        <div>
-          <h2 style={{ color: 'var(--primary)', margin: 0, fontWeight: 700, fontSize: '2.1rem' }}>AI 가계부</h2>
+  <div 
+    className="dashboard-container"
+    onTouchStart={handleTouchStart}
+    onTouchMove={handleTouchMove}
+    onTouchEnd={handleTouchEnd}
+  >
+      {/* Pull-to-refresh 인디케이터 */}
+      {isPulling && window.scrollY === 0 && (
+        <div 
+          className="pull-to-refresh-indicator"
+          style={{
+            position: 'fixed',
+            top: `${Math.min(pullDistance - 20, 60)}px`,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 1003,
+            background: pullDistance > 80 ? '#28a745' : 'var(--primary)',
+            color: 'white',
+            padding: '8px 16px',
+            borderRadius: '20px',
+            fontSize: '0.9rem',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+            transition: 'background 0.2s ease'
+          }}
+        >
+          {pullDistance > 80 ? '놓으면 새로고침 🔄' : '아래로 당겨서 새로고침 ⬇️'}
         </div>
-  <button className="btn" style={{margin: 0}} onClick={openModal}>영수증 추가하기</button>
-      </div>
+      )}
+      
+  {/* 업로드 버튼은 Header로 이동 */}
   <div className="dashboard-main" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 16, padding: 16, alignItems: 'stretch' }} role="list">
   {layoutOrder.map((id) => {
       if (id === 'calendar') {
