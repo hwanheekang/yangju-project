@@ -9,8 +9,9 @@ export default defineConfig({
     proxy: {
       // '/api'로 시작하는 모든 요청을 아래 target 주소로 전달합니다.
       '/api': {
-        target: 'http://testbebcd00.azurewebsites.net',
-        changeOrigin: true,
+      target: 'http://localhost:4000',
+      changeOrigin: true,
+      secure: false,
       },
     },
   },

@@ -342,8 +342,12 @@ app.use('/api/receipts', receiptsRouter);
 app.use('/api/preferences', preferencesRouter);
 app.use('/api/analytics', analyticsRouter);
 
+// --- Health check endpoint (for Azure Web App/VMSS) ---
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
 
-// 5. 서버 실행
+// 5. 서버 실행 (PORT 환경변수 우선)
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`🚀 Server is running on port ${port}`);
