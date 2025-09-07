@@ -63,7 +63,7 @@ jobs:
         id: build-frontend
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./Front-End
           file: Dockerfile.frontend
           push: true
           provenance: false
@@ -88,7 +88,7 @@ jobs:
         id: build-backend
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./Back-End
           file: Dockerfile.backend
           push: true
           provenance: false
