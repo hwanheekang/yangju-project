@@ -1,4 +1,12 @@
 node_modules
+*.log
+*.local
+coverage
+.DS_Store
+.git
+Dockerfile*
+README.md
+testsnode_modules
 npm-debug.log
 Dockerfile*
 .dockerignore

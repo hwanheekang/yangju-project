@@ -8,7 +8,7 @@ on:
       - "Back-End/**"
       - "Dockerfile.frontend"
       - "Dockerfile.backend"
-      - "nginx.conf"
+  - "Front-End/nginx.conf"
       - ".dockerignore"
       - ".github/workflows/build-and-push.yml"
   workflow_dispatch: {}

@@ -4,13 +4,13 @@ FROM node:20.19-alpine AS builder
 WORKDIR /app
 
 # 캐시 최적화: 의존성만 우선 복사
-COPY Front-End/package*.json ./
+COPY package*.json ./
 
 # 잠금파일 우선 설치
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 # 소스 복사 및 빌드
-COPY Front-End/ ./
+COPY . ./
 RUN npm run build
 
 # Runtime 단계: Nginx 경량 이미지 (최종 배포용)
@@ -22,7 +22,7 @@ RUN apk add --no-cache curl
 # 정적 산출물 복사
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# 커스텀 nginx.conf 적용 (SPA 라우팅/캐싱/압축)
+# 커스텀 nginx.conf (리포지토리 구조 변경으로 Front-End/ 내부 배치)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

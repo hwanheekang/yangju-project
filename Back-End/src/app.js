@@ -1,5 +1,3 @@
-// 이미지 업로드 + 문서인텔리전스 분석 API
-
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -14,7 +12,7 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --- Environment meta (multi-target) ---
+// --- Environment meta ---
 const appEnv = process.env.APP_ENV || process.env.NODE_ENV || 'local';
 // Accept new DEPLOY_TARGETS (comma list) or legacy DEPLOY_TARGET
 const deployTargetsRaw = process.env.DEPLOY_TARGETS || process.env.DEPLOY_TARGET || 'webapp,vmss';
@@ -25,7 +23,7 @@ const logLevel = (process.env.LOG_LEVEL || (appEnv === 'production' ? 'info' : '
 const isProd = appEnv === 'production';
 
 
-// --- Azure Document Intelligence 공통 유틸 ---
+// --- Azure Document Intelligence ---
 const diApiVersion = process.env.DI_API_VERSION || '2023-07-31';
 async function analyzeReceiptByUrl(publicUrl, { modelIdEnv } = {}) {
   const endpoint = (process.env.AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT || '').replace(/\/$/, '');

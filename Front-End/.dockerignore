@@ -1,4 +1,11 @@
 node_modules
+dist
+*.log
+Dockerfile*
+README.md
+*.local
+.DS_Store
+.gitnode_modules
 npm-debug.log
 dist
 .DS_Store
