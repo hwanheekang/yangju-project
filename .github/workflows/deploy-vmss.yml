@@ -1,7 +1,12 @@
 name: Deploy to VMSS (Rolling)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      sha_tag:
+        description: "(선택) 배포할 이미지 SHA 태그 (미입력 시 latest)"
+        required: false
+        type: string
   push:
     branches: [ "main" ]
     paths:
@@ -18,6 +23,8 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      SELECTED_SHA: ${{ inputs.sha_tag }}
     steps:
       - uses: actions/checkout@v4
       - name: Rolling update on VMSS
@@ -33,7 +40,15 @@ jobs:
             az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
             az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
+            if [ -n "$SELECTED_SHA" ]; then
+              echo "Using supplied SHA tag: $SELECTED_SHA"
+              IMAGE_TAG="$SELECTED_SHA"
+            else
+              echo "No SHA provided. Using 'latest' tag."
+              IMAGE_TAG="latest"
+            fi
+
             az vmss run-command invoke \
               -g $AZURE_RG -n $VMSS_NAME \
               --command-id RunShellScript \
-              --scripts "sudo az login --identity && sudo az acr login --name acrbcd00 && sudo docker compose -f /opt/yangju/docker-compose.yml pull && sudo systemctl restart yangju && sudo docker ps"
+              --scripts "sudo az login --identity && sudo az acr login --name acrbcd00 && export IMAGE_TAG=$IMAGE_TAG && sudo docker compose -f /opt/yangju/docker-compose.yml pull && sudo systemctl restart yangju && sudo docker ps"

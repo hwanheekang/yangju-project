@@ -38,9 +38,9 @@ RUN mkdir -p /var/lib/nginx /var/cache/nginx/client_temp /var/lib/nginx/tmp/clie
 
 # 런타임 환경변수 치환 스크립트 (envsubst)
 COPY --from=builder /bin/sh /bin/sh
-ENV BACKEND_HOST=localhost BACKEND_PORT=4000
+ENV BACKEND_SCHEME=http BACKEND_HOST=localhost BACKEND_PORT=4000
 
-ENTRYPOINT ["/bin/sh", "-c", "envsubst '$$BACKEND_HOST $$BACKEND_PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'" ]
+ENTRYPOINT ["/bin/sh", "-c", "envsubst '$$BACKEND_SCHEME $$BACKEND_HOST $$BACKEND_PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && exec nginx -g 'daemon off;'" ]
 
 # 보안: nginx를 non-root로 실행
 # 권한 낮추기

@@ -23,10 +23,13 @@ env:
   FRONTEND_IMAGE_NAME: frontend
   BACKEND_IMAGE_NAME: backend
   IMAGE_TAG: latest
+  SHA_TAG: ${GITHUB_SHA}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      sha_tag: ${{ steps.set-sha-tag.outputs.sha_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,8 +52,10 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
+            type=raw,value=${{ env.SHA_TAG }}
 
       - name: Build & push frontend
+        id: build_frontend
         uses: docker/build-push-action@v6
         with:
           context: Front-End
@@ -68,8 +73,10 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
+            type=raw,value=${{ env.SHA_TAG }}
 
       - name: Build & push backend
+        id: build_backend
         uses: docker/build-push-action@v6
         with:
           context: Back-End
@@ -82,6 +89,13 @@ jobs:
 
       - name: Summary
         run: |
-          echo FRONTEND=$REGISTRY/$FRONTEND_IMAGE_NAME:latest
-          echo BACKEND=$REGISTRY/$BACKEND_IMAGE_NAME:latest
+          echo FRONTEND_LATEST=$REGISTRY/$FRONTEND_IMAGE_NAME:latest
+          echo FRONTEND_SHA=$REGISTRY/$FRONTEND_IMAGE_NAME:${GITHUB_SHA}
+          echo BACKEND_LATEST=$REGISTRY/$BACKEND_IMAGE_NAME:latest
+          echo BACKEND_SHA=$REGISTRY/$BACKEND_IMAGE_NAME:${GITHUB_SHA}
+          echo FRONTEND_DIGEST=${{ steps.build_frontend.outputs.digest }}
+          echo BACKEND_DIGEST=${{ steps.build_backend.outputs.digest }}
           echo GIT_SHA=$GITHUB_SHA
+      - name: Expose SHA tag
+        id: set-sha-tag
+        run: echo "sha_tag=${GITHUB_SHA}" >> $GITHUB_OUTPUT

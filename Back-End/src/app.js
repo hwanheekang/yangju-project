@@ -12,6 +12,11 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Trust reverse proxy (App Gateway / Azure Front Door / Nginx Ingress) when explicitly enabled
+if ((process.env.TRUST_PROXY || '').toLowerCase() === '1' || (process.env.TRUST_PROXY || '').toLowerCase() === 'true') {
+  app.set('trust proxy', true);
+}
+
 // --- Environment meta ---
 const appEnv = process.env.APP_ENV || process.env.NODE_ENV || 'local';
 // Accept new DEPLOY_TARGETS (comma list) or legacy DEPLOY_TARGET
