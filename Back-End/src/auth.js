@@ -66,12 +66,15 @@ authRouter.post('/login', async (req, res) => {
       username: user.username,
     };
 
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: 'Server misconfiguration: JWT_SECRET not set' });
+    }
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({ token });
   } catch (error) {
     console.error('Login Error:', error);
-    res.status(500).json({ error: 'Database error during login.' });
+  res.status(500).json({ error: 'Database or auth error during login.' });
   }
 });
 

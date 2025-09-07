@@ -7,6 +7,14 @@ on:
         description: "(선택) 배포할 이미지 SHA 태그 (미입력 시 latest)"
         required: false
         type: string
+      target:
+        description: "배포 대상 (frontend|backend)"
+        required: true
+        default: "frontend"
+        type: choice
+        options:
+          - frontend
+          - backend
   push:
     branches: [ "main" ]
     paths:
@@ -18,14 +26,17 @@ permissions:
   id-token: write
 
 env:
-  AZURE_RG: rg-yangju
-  VMSS_NAME: vmss-yangju
+  # 기본값 (입력에 따라 덮어씀)
+  AZURE_RG: rg-bcd00
+  VMSS_FE: vmss-fe-bcd00
+  VMSS_BE: vmss-be-bcd00
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
       SELECTED_SHA: ${{ inputs.sha_tag }}
+      TARGET: ${{ inputs.target }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,19 +62,19 @@ jobs:
               IMAGE_TAG="latest"
             fi
 
-            echo "Deploying IMAGE_TAG=$IMAGE_TAG to VMSS $VMSS_NAME"
-            echo "Fetching instance IDs..."
-            IDS=$(az vmss list-instances -g $AZURE_RG -n $VMSS_NAME --query '[].instanceId' -o tsv)
-            if [ -z "$IDS" ]; then
-              echo "No instances found in scale set $VMSS_NAME" >&2; exit 1;
+            if [ "$TARGET" = "frontend" ]; then
+              VMSS_NAME="$VMSS_FE"
+              echo "Target: frontend -> $VMSS_NAME"
+            else
+              VMSS_NAME="$VMSS_BE"
+              echo "Target: backend -> $VMSS_NAME"
             fi
-            for ID in $IDS; do
-              echo "-- Updating instance $ID"
-              az vmss run-command invoke \
-                -g $AZURE_RG -n $VMSS_NAME \
-                --instance-id $ID \
-                --command-id RunShellScript \
-                --scripts "sudo az login --identity && sudo az acr login --name acrbcd00 && export IMAGE_TAG=$IMAGE_TAG && sudo docker compose -f /opt/yangju/docker-compose.yml pull && sudo systemctl restart yangju && sudo docker ps" \
-                --query 'value[].message' -o tsv || { echo "Instance $ID update failed" >&2; exit 1; }
-            done
-            echo "All instances updated successfully."
+
+            echo "Deploying IMAGE_TAG=$IMAGE_TAG to VMSS $VMSS_NAME (resource group $AZURE_RG)"
+            az vmss run-command invoke \
+              -g $AZURE_RG -n $VMSS_NAME \
+              --instance-id * \
+              --command-id RunShellScript \
+              --scripts "sudo az login --identity && sudo az acr login --name acrbcd00 && export IMAGE_TAG=$IMAGE_TAG && sudo docker compose -f /opt/yangju/docker-compose.yml pull && sudo systemctl restart yangju && sudo docker ps" \
+              --query 'value[].message' -o tsv
+            echo "Command dispatched to all instances (*)"

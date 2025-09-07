@@ -248,6 +248,21 @@ app.get('/health', (_, res) => {
   });
 });
 
+// /api/health (프록시 경로와 일치시키기 위한 별칭)
+app.get('/api/health', (_, res) => {
+  res.status(200).json({
+    status: 'UP',
+    time: new Date().toISOString(),
+    commit: process.env.GIT_COMMIT || null,
+    env: appEnv,
+    deployTargets,
+    isWebApp,
+    isVmss,
+    logLevel,
+    path: '/api/health'
+  });
+});
+
 // --- DB Health Check Endpoint ---
 app.get('/db-health', async (_, res) => {
   try {
