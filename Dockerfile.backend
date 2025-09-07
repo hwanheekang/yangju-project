@@ -12,8 +12,8 @@ COPY Back-End/package*.json ./
 
 # 잠금파일 존재 시 재현 가능한 설치, 없으면 일반 설치 (dev deps 제외)
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
-		&& npm cache clean --force \
-		&& apk add --no-cache curl
+    && npm cache clean --force \
+    && apk add --no-cache curl
 
 # 애플리케이션 소스 복사
 COPY Back-End/ .
@@ -22,12 +22,21 @@ COPY Back-End/ .
 RUN chown -R node:node /app
 USER node
 
-# 서비스 포트
-EXPOSE 4000
+# ===================================================================
+# ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 이 부분이 수정되었습니다 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+# ===================================================================
+
+# 서비스 포트 (참고용이며, 실제 포트는 PORT 환경 변수로 결정됨)
+# EXPOSE 4000 <-- 이 라인은 혼란을 줄 수 있어 제거하거나 주석 처리합니다.
 
 # 헬스체크 (VMSS/로드밸런서용)
+# Azure의 PORT 환경 변수를 동적으로 사용하도록 수정합니다.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-	CMD curl -fsS http://localhost:4000/health || exit 1
+  CMD sh -c 'curl -fsS http://localhost:${PORT:-4000}/health || exit 1'
+
+# ===================================================================
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+# ===================================================================
 
 # 실행 커맨드
 CMD [ "node", "src/app.js" ]
