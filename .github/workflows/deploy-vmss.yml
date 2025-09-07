@@ -23,24 +23,24 @@ on:
 
 permissions:
   contents: read
-  id-token: write
+  id-token: write   # OIDC 필요
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  # 기본값 (입력에 따라 덮어씀)
   AZURE_RG: rg-bcd00
   VMSS_FE: vmss-fe-bcd00
   VMSS_BE: vmss-be-bcd00
   ACR_NAME: acrbcd00
-  # 단일 VMSS 명시가 필요한 레거시/단순 시나리오 호환 (요청 사항)
-  # 설정 시 TARGET 값과 무관하게 이 값이 우선 적용됨
-  VMSS_NAME: vmss-yangju
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      SELECTED_SHA: ${{ inputs.sha_tag }}
-      TARGET: ${{ inputs.target }}
+      SELECTED_SHA: ${{ github.event.inputs.sha_tag }}
+      TARGET: ${{ github.event.inputs.target }}
     steps:
       - uses: actions/checkout@v4
 
@@ -54,24 +54,19 @@ jobs:
       - name: Decide tag / target
         id: prep
         run: |
-          if [ -n "${SELECTED_SHA}" ]; then
-            IMAGE_TAG="${SELECTED_SHA}"
+          if [ -n "${{ env.SELECTED_SHA }}" ]; then
+            echo "IMAGE_TAG=${{ env.SELECTED_SHA }}" >> $GITHUB_ENV
           else
-            IMAGE_TAG="latest"
+            echo "IMAGE_TAG=latest" >> $GITHUB_ENV
           fi
-          # 기본: target 기반 선택
-          if [ -n "${VMSS_NAME}" ]; then
-            echo "[INFO] Explicit VMSS_NAME env detected -> ${VMSS_NAME} (override target logic)"
+          
+          if [ "${{ env.TARGET }}" = "frontend" ]; then
+            echo "VMSS_NAME=${{ env.VMSS_FE }}" >> $GITHUB_ENV
           else
-            if [ "${TARGET}" = "frontend" ]; then
-              VMSS_NAME="${VMSS_FE}"
-            else
-              VMSS_NAME="${VMSS_BE}"
-            fi
+            echo "VMSS_NAME=${{ env.VMSS_BE }}" >> $GITHUB_ENV
           fi
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-          echo "VMSS_NAME=${VMSS_NAME}" >> $GITHUB_ENV
-          echo "Resolved -> IMAGE_TAG=${IMAGE_TAG}, VMSS_NAME=${VMSS_NAME}"
+          
+          echo "Resolved -> IMAGE_TAG=${{ env.IMAGE_TAG }}, VMSS_NAME=${{ env.VMSS_NAME }}"
 
       - name: Rolling update on VMSS
         uses: azure/cli@v2
@@ -94,7 +89,9 @@ jobs:
               sudo docker compose pull
               sudo systemctl restart yangju
               sleep 6
-              if curl -fsS http://localhost/api/health >/dev/null 2>&1; then
+              if curl -fsS http://localhost:8080 >/dev/null 2>&1; then
+                echo 'Health OK: http://localhost:8080'
+              elif curl -fsS http://localhost/api/health >/dev/null 2>&1; then
                 echo 'Health OK: /api/health'
               elif curl -fsS http://localhost/health >/dev/null 2>&1; then
                 echo 'Health OK: /health'
@@ -102,16 +99,15 @@ jobs:
                 echo 'WARN: health endpoint not reachable'
               fi
               sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-              echo '== Instance Update End =='
-              " \
+              echo '== Instance Update End ==" \
               --query 'value[].message' -o tsv
             echo "Run-command dispatched to all instances (*)"
 
       - name: Summary
         run: |
           echo '### VMSS Deploy Summary' >> $GITHUB_STEP_SUMMARY
-          echo "- Target: ${TARGET}" >> $GITHUB_STEP_SUMMARY
+          echo "- Target: ${{ env.TARGET }}" >> $GITHUB_STEP_SUMMARY
           echo "- VMSS: ${VMSS_NAME}" >> $GITHUB_STEP_SUMMARY
-          echo "- Image Tag: ${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
-          echo "- Resource Group: ${AZURE_RG}" >> $GITHUB_STEP_SUMMARY
-          echo "- ACR: ${ACR_NAME}" >> $GITHUB_STEP_SUMMARY
+          echo "- Image Tag: ${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Resource Group: ${{ env.AZURE_RG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- ACR: ${{ env.ACR_NAME }}" >> $GITHUB_STEP_SUMMARY
