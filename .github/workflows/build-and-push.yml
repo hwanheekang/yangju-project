@@ -1,25 +1,20 @@
-name: Build and Push Docker Images to ACR
+name: build-and-push
 
 on:
   push:
-    branches: ["main"]
+    branches: [ main ]
     paths:
-      - Front-End/**
-      - Back-End/**
-      - Dockerfile.frontend
-      - Dockerfile.backend
-      - Front-End/nginx.conf
-      - .dockerignore
-      - .github/workflows/build-and-push.yml
+      - 'Front-End/**'
+      - 'Back-End/**'
+      - 'Dockerfile.frontend'
+      - 'Dockerfile.backend'
+      - 'Front-End/nginx.conf'
+      - '.github/workflows/build-and-push.yml'
   workflow_dispatch: {}
 
 permissions:
   contents: read
-  id-token: write   # OIDC 필요
-
-concurrency:
-  group: build-acr-${{ github.ref }}
-  cancel-in-progress: true
+  id-token: write
 
 env:
   REGISTRY: acrbcd00.azurecr.io
@@ -28,86 +23,63 @@ env:
   IMAGE_TAG: latest
 
 jobs:
-  build-and-push:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Azure OIDC Login
+      - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v3
 
-      - name: ACR Login (via az + OIDC)
+      - name: ACR login
         run: az acr login --name "${REGISTRY%%.*}"
 
-      # ---------- Frontend ----------
-      - name: Frontend metadata
-        id: meta-frontend
+      - name: Frontend meta
+        id: fe-meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
 
-      - name: Build & Push Frontend
-        id: build-frontend
+      - name: Build & push frontend
         uses: docker/build-push-action@v6
         with:
-          context: ./Front-End
+          context: Front-End
           file: Dockerfile.frontend
           push: true
           provenance: false
-          tags: ${{ steps.meta-frontend.outputs.tags }}
+          tags: ${{ steps.fe-meta.outputs.tags }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache,mode=max
-          # tag push only
 
-      - name: Show frontend image tag
-        run: echo "Frontend pushed tag: $REGISTRY/$FRONTEND_IMAGE_NAME:latest"
-
-      # ---------- Backend ----------
-      - name: Backend metadata
-        id: meta-backend
+      - name: Backend meta
+        id: be-meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
 
-      - name: Build & Push Backend
-        id: build-backend
+      - name: Build & push backend
         uses: docker/build-push-action@v6
         with:
-          context: ./Back-End
+          context: Back-End
           file: Dockerfile.backend
           push: true
           provenance: false
-          tags: ${{ steps.meta-backend.outputs.tags }}
+          tags: ${{ steps.be-meta.outputs.tags }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:buildcache,mode=max
-          # tag push only
-
-      - name: Show backend image tag
-        run: echo "Backend pushed tag: $REGISTRY/$BACKEND_IMAGE_NAME:latest"
-
-      - name: Registry propagation check
-        run: |
-          for i in {1..5}; do
-            echo "Pull attempt $i..."
-            (docker pull $REGISTRY/$FRONTEND_IMAGE_NAME:latest && docker pull $REGISTRY/$BACKEND_IMAGE_NAME:latest) && break
-            sleep 5
-          done
 
       - name: Summary
         run: |
-          echo "FRONTEND: $REGISTRY/$FRONTEND_IMAGE_NAME:latest"
-          echo "BACKEND:  $REGISTRY/$BACKEND_IMAGE_NAME:latest"
-          echo "GITHUB_SHA: $GITHUB_SHA"
-          echo "Run URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          echo FRONTEND=$REGISTRY/$FRONTEND_IMAGE_NAME:latest
+          echo BACKEND=$REGISTRY/$BACKEND_IMAGE_NAME:latest
+          echo GIT_SHA=$GITHUB_SHA
