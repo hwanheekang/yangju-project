@@ -1,15 +1,17 @@
-name: build-and-push
+
+name: Build and Push Docker Images to ACR
 
 on:
-        with:
-          context: ./
-          file: Dockerfile.frontend
-          push: true
-          provenance: false
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache,mode=max
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }},push-by-digest=true,name-canonical=true
+  push:
+    branches: [ "main" ]
+    paths:
+      - "Front-End/**"
+      - "Back-End/**"
+      - "Dockerfile.frontend"
+      - "Dockerfile.backend"
+      - "nginx.conf"
+      - ".dockerignore"
+      - ".github/workflows/build-and-push.yml"
   workflow_dispatch: {}
 
 permissions:
