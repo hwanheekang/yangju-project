@@ -14,6 +14,17 @@ dotenv.config();
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
 
+// --- Environment meta (multi-target) ---
+const appEnv = process.env.APP_ENV || process.env.NODE_ENV || 'local';
+// Accept new DEPLOY_TARGETS (comma list) or legacy DEPLOY_TARGET
+const deployTargetsRaw = process.env.DEPLOY_TARGETS || process.env.DEPLOY_TARGET || 'webapp,vmss';
+const deployTargets = deployTargetsRaw.split(',').map(v => v.trim()).filter(Boolean);
+const isWebApp = deployTargets.includes('webapp');
+const isVmss = deployTargets.includes('vmss');
+const logLevel = (process.env.LOG_LEVEL || (appEnv === 'production' ? 'info' : 'debug')).toLowerCase();
+const isProd = appEnv === 'production';
+
+
 // --- Azure Document Intelligence 공통 유틸 ---
 const diApiVersion = process.env.DI_API_VERSION || '2023-07-31';
 async function analyzeReceiptByUrl(publicUrl, { modelIdEnv } = {}) {
@@ -66,8 +77,7 @@ async function analyzeReceiptByUrl(publicUrl, { modelIdEnv } = {}) {
   timeoutErr.status = 504; throw timeoutErr;
 }
 
-// Environment and middleware baseline
-const isProd = process.env.NODE_ENV === 'production';
+// Environment and middleware baseline (updated to use APP_ENV / LOG_LEVEL)
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map(o => o.trim())
@@ -86,7 +96,10 @@ app.use(cors({
   credentials: true,
 }));
 app.use(helmet());
-app.use(morgan(isProd ? 'combined' : 'dev'));
+const morganFormat = logLevel === 'debug' ? 'dev' : 'combined';
+if (logLevel !== 'silent') {
+  app.use(morgan(morganFormat));
+}
 app.use(express.json({ limit: '2mb' }));
 app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => {
   try {
@@ -106,6 +119,9 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
     await blockBlobClient.uploadData(req.file.buffer, {
       blobHTTPHeaders: { blobContentType: req.file.mimetype }
     });
+    const imageUrl = `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}`;
+
+    // 2. Azure Document Intelligence 분석
     // SAS (읽기) 15분 부여 후 공용 URL 구성
     const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
     const sas = generateBlobSASQueryParameters({
@@ -116,29 +132,21 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
       expiresOn: new Date(Date.now() + 15 * 60 * 1000)
     }, sharedKeyCredential).toString();
     const publicUrl = `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sas}`;
-    if (!isProd) console.log('[DEBUG] Blob public SAS URL (temp):', publicUrl);
+    if (process.env.NODE_ENV !== 'production') console.log('[DEBUG] Blob public SAS URL (temp):', publicUrl);
+
     let result;
     try {
       result = await analyzeReceiptByUrl(publicUrl, {});
     } catch (e) {
       const status = e.status || 500;
-      if (!isProd) console.error('[DI ERROR]', status, e.details || e.message);
+      if (process.env.NODE_ENV !== 'production') console.error('[DI ERROR]', status, e.details || e.message);
       return res.status(status).json({ error: 'AI analyze failed', details: e.details || e.message });
     }
+
     let receiptData = {};
-    // Verbose logging in non-prod only
-    if (!isProd) {
-      try {
-        console.log('DI result typeof:', typeof result);
-        console.log('DI result JSON:', JSON.stringify(result, null, 2));
-      } catch (_) {}
-    }
-  const docResult = result?.analyzeResult?.documents?.[0];
+    const docResult = result?.analyzeResult?.documents?.[0];
     if (docResult && docResult.fields) {
       const fields = docResult.fields;
-      if (!isProd) {
-        try { console.log('Parsed fields:', JSON.stringify(fields, null, 2)); } catch (_) {}
-      }
       // valueString 우선, 없으면 content 사용
       const storeName = fields.MerchantName?.value || fields.MerchantName?.content || fields.store_name?.valueString || fields.store_name?.content || '';
       let totalAmountRaw = fields.Total?.value || fields.Total?.content || fields.total_amount?.valueString || fields.total_amount?.content || '';
@@ -151,22 +159,30 @@ app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => 
         if (/^\d{4}-\d{2}-\d{2}$/.test(transactionDate)) {
           transactionDate = transactionDate;
         } else {
-          transactionDate = new Date(dateRaw).toISOString();
+          const parsedDate = new Date(dateRaw);
+          if (!isNaN(parsedDate.getTime())) {
+            transactionDate = parsedDate.toISOString();
+          } else {
+            transactionDate = '';
+          }
         }
       }
       receiptData = {
         store_name: storeName,
         total_amount: totalAmount,
         transaction_date: transactionDate,
-        source_blob_url: publicUrl
+        source_blob_url: imageUrl
       };
-    } else {
-      if (!isProd) console.log('No docResult or fields found in DI response.');
     }
     res.json({ receipt: receiptData, imageUrl });
   } catch (err) {
-    console.error('Upload & Analyze error:', err?.message || err);
-    res.status(500).json({ error: 'Failed to upload or analyze image', details: err.message });
+    console.error('Upload & Analyze error:', err);
+    res.status(500).json({
+      error: 'Failed to upload or analyze image',
+      details: err?.message || err,
+      stack: err?.stack,
+      raw: err
+    });
   }
 });
 
@@ -215,9 +231,18 @@ import { analyticsRouter } from './analytics.js';
 
 
 // 4. API 라우트 설정
-// --- Health Check Endpoint ---
+// --- Health Check Endpoint (통합) ---
 app.get('/health', (_, res) => {
-  res.status(200).json({ status: 'UP' });
+  res.status(200).json({
+    status: 'UP',
+    time: new Date().toISOString(),
+    commit: process.env.GIT_COMMIT || null,
+    env: appEnv,
+    deployTargets,
+    isWebApp,
+    isVmss,
+    logLevel
+  });
 });
 
 // --- DB Health Check Endpoint ---
@@ -300,13 +325,28 @@ app.use('/api/receipts', receiptsRouter);
 app.use('/api/preferences', preferencesRouter);
 app.use('/api/analytics', analyticsRouter);
 
-// --- Health check endpoint (for Azure Web App/VMSS) ---
-app.get('/health', (req, res) => {
-  res.status(200).send('OK');
-});
+// (중복 제거됨)
 
 // 5. 서버 실행 (PORT 환경변수 우선)
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`🚀 Server is running on port ${port}`);
 });
+
+function shutdown(signal) {
+  console.log(`\n${signal} received. Graceful shutdown start...`);
+  server.close(err => {
+    if (err) {
+      console.error('Error during server close', err);
+      process.exit(1);
+    }
+    console.log('HTTP server closed. Exiting.');
+    process.exit(0);
+  });
+  // 10초 내 종료 강제
+  setTimeout(() => {
+    console.warn('Force exit after timeout');
+    process.exit(1);
+  }, 10000).unref();
+}
+['SIGTERM','SIGINT'].forEach(sig => process.on(sig, () => shutdown(sig)));
