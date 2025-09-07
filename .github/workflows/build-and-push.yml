@@ -23,7 +23,6 @@ env:
   FRONTEND_IMAGE_NAME: frontend
   BACKEND_IMAGE_NAME: backend
   IMAGE_TAG: latest
-  SHA_TAG: ${GITHUB_SHA}
 
 jobs:
   build:
@@ -52,7 +51,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
-            type=raw,value=${{ env.SHA_TAG }}
+            type=sha,format=long
 
       - name: Build & push frontend
         id: build_frontend
@@ -73,7 +72,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
-            type=raw,value=${{ env.SHA_TAG }}
+            type=sha,format=long
 
       - name: Build & push backend
         id: build_backend

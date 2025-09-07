@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 env:
   AZURE_RG: rg-yangju
@@ -27,18 +28,20 @@ jobs:
       SELECTED_SHA: ${{ inputs.sha_tag }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       - name: Rolling update on VMSS
         uses: azure/cli@v2
-        env:
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         with:
           inlineScript: |
             set -e
-            az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" --tenant "$AZURE_TENANT_ID"
-            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+            az account show -o table
 
             if [ -n "$SELECTED_SHA" ]; then
               echo "Using supplied SHA tag: $SELECTED_SHA"
@@ -48,6 +51,7 @@ jobs:
               IMAGE_TAG="latest"
             fi
 
+            echo "Deploying IMAGE_TAG=$IMAGE_TAG to VMSS $VMSS_NAME"
             az vmss run-command invoke \
               -g $AZURE_RG -n $VMSS_NAME \
               --command-id RunShellScript \
