@@ -67,7 +67,7 @@ jobs:
           tags: ${{ steps.meta-frontend.outputs.tags }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache,mode=max
-          # digest push 비활성화 (단순 태그 push)
+          # tag push only
 
       - name: Show frontend image tag
         run: echo "Frontend pushed tag: $REGISTRY/$FRONTEND_IMAGE_NAME:latest"
@@ -92,7 +92,7 @@ jobs:
           tags: ${{ steps.meta-backend.outputs.tags }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:buildcache,mode=max
-          # digest push 비활성화 (단순 태그 push)
+          # tag push only
 
       - name: Show backend image tag
         run: echo "Backend pushed tag: $REGISTRY/$BACKEND_IMAGE_NAME:latest"
