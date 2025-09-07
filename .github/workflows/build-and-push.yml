@@ -32,12 +32,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to ACR
-        uses: docker/login-action@v3
+      # ===================================================================
+      # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 이 부분이 수정되었습니다 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+      # ===================================================================
+      # 1. 로그인 방식을 Azure 전용 액션으로 변경 (더 안정적)
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v2
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.AZURE_CLIENT_ID }}
-          password: ${{ secrets.AZURE_CLIENT_SECRET }}
+          login-server: ${{ env.REGISTRY }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # ===================================================================
+      # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+      # ===================================================================
 
       - name: Frontend metadata
         id: meta_fe
@@ -69,12 +75,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to ACR
-        uses: docker/login-action@v3
+      # ===================================================================
+      # ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 이 부분이 수정되었습니다 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+      # ===================================================================
+      # 1. 로그인 방식을 Azure 전용 액션으로 변경 (더 안정적)
+      - name: Log in to Azure Container Registry
+        uses: azure/docker-login@v2
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.AZURE_CLIENT_ID }}
-          password: ${{ secrets.AZURE_CLIENT_SECRET }}
+          login-server: ${{ env.REGISTRY }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      # ===================================================================
+      # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+      # ===================================================================
 
       - name: Backend metadata
         id: meta_be
