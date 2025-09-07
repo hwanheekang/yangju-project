@@ -52,7 +52,18 @@ jobs:
             fi
 
             echo "Deploying IMAGE_TAG=$IMAGE_TAG to VMSS $VMSS_NAME"
-            az vmss run-command invoke \
-              -g $AZURE_RG -n $VMSS_NAME \
-              --command-id RunShellScript \
-              --scripts "sudo az login --identity && sudo az acr login --name acrbcd00 && export IMAGE_TAG=$IMAGE_TAG && sudo docker compose -f /opt/yangju/docker-compose.yml pull && sudo systemctl restart yangju && sudo docker ps"
+            echo "Fetching instance IDs..."
+            IDS=$(az vmss list-instances -g $AZURE_RG -n $VMSS_NAME --query '[].instanceId' -o tsv)
+            if [ -z "$IDS" ]; then
+              echo "No instances found in scale set $VMSS_NAME" >&2; exit 1;
+            fi
+            for ID in $IDS; do
+              echo "-- Updating instance $ID"
+              az vmss run-command invoke \
+                -g $AZURE_RG -n $VMSS_NAME \
+                --instance-id $ID \
+                --command-id RunShellScript \
+                --scripts "sudo az login --identity && sudo az acr login --name acrbcd00 && export IMAGE_TAG=$IMAGE_TAG && sudo docker compose -f /opt/yangju/docker-compose.yml pull && sudo systemctl restart yangju && sudo docker ps" \
+                --query 'value[].message' -o tsv || { echo "Instance $ID update failed" >&2; exit 1; }
+            done
+            echo "All instances updated successfully."
