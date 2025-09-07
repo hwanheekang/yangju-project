@@ -30,9 +30,6 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    outputs:
-      FRONTEND_DIGEST: ${{ steps.build-frontend.outputs.digest }}
-      BACKEND_DIGEST: ${{ steps.build-backend.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,10 +67,10 @@ jobs:
           tags: ${{ steps.meta-frontend.outputs.tags }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:buildcache,mode=max
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }},push-by-digest=true,name-canonical=true
+          # digest push 비활성화 (단순 태그 push)
 
-      - name: Show frontend digest
-        run: echo "Frontend digest=${{ steps.build-frontend.outputs.digest }}"
+      - name: Show frontend image tag
+        run: echo "Frontend pushed tag: $REGISTRY/$FRONTEND_IMAGE_NAME:latest"
 
       # ---------- Backend ----------
       - name: Backend metadata
@@ -95,10 +92,10 @@ jobs:
           tags: ${{ steps.meta-backend.outputs.tags }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}:buildcache,mode=max
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }},push-by-digest=true,name-canonical=true
+          # digest push 비활성화 (단순 태그 push)
 
-      - name: Show backend digest
-        run: echo "Backend digest=${{ steps.build-backend.outputs.digest }}"
+      - name: Show backend image tag
+        run: echo "Backend pushed tag: $REGISTRY/$BACKEND_IMAGE_NAME:latest"
 
       - name: Registry propagation check
         run: |
@@ -110,22 +107,7 @@ jobs:
 
       - name: Summary
         run: |
-          echo "FRONTEND: $REGISTRY/$FRONTEND_IMAGE_NAME:latest (digest=${{ steps.build-frontend.outputs.digest }})"
-          echo "BACKEND:  $REGISTRY/$BACKEND_IMAGE_NAME:latest (digest=${{ steps.build-backend.outputs.digest }})"
+          echo "FRONTEND: $REGISTRY/$FRONTEND_IMAGE_NAME:latest"
+          echo "BACKEND:  $REGISTRY/$BACKEND_IMAGE_NAME:latest"
           echo "GITHUB_SHA: $GITHUB_SHA"
           echo "Run URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-      - name: Write digest files
-        if: always()
-        run: |
-          echo "${{ steps.build-frontend.outputs.digest }}" > frontend-digest.txt
-          echo "${{ steps.build-backend.outputs.digest }}" > backend-digest.txt
-
-      - name: Upload digest artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-digests
-          retention-days: 7
-          path: |
-            frontend-digest.txt
-            backend-digest.txt
