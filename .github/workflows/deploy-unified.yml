@@ -422,55 +422,79 @@ jobs:
           VMSS_FE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --query "id" -o tsv)
           
           # Create Backend VMSS only if it doesn't exist
-          if ! az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
-            echo "Creating Backend VMSS..."
-            az vmss create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.VMSS_BE }} \
-              --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
-              --instance-count 2 \
-              --vm-sku Standard_B2s \
-              --vnet-name vnet-eus2 \
-              --subnet snet-eus2-be \
-              --nsg vmss-be-bcd00-nsg \
-              --orchestration-mode Uniform \
-              --upgrade-policy-mode automatic \
-              --admin-username bcdbeuser00 \
-              --generate-ssh-keys \
-              --custom-data infra/cloud-init-optimized.yaml \
-              --assign-identity "$VMSS_BE_IDENTITY_ID" \
-              --load-balancer nlb-bcd00 \
-              --backend-pool-name backend-lb-pool \
-              --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/probe-for-port-4000" \
-              --location eastus2
-            echo "✅ Backend VMSS created successfully"
-          else
+          echo "🔍 Checking Backend VMSS existence..."
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
             echo "✅ Backend VMSS already exists, skipping creation"
+          else
+            echo "❌ Backend VMSS not found, will create"
+            
+            # Wait for any pending operations to complete
+            echo "⏳ Waiting for any pending operations..."
+            sleep 30
+            
+            # Double-check before creating
+            if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
+              echo "✅ Backend VMSS appeared during wait, skipping creation"
+            else
+              echo "Creating Backend VMSS..."
+              az vmss create \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name ${{ env.VMSS_BE }} \
+                --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
+                --instance-count 2 \
+                --vm-sku Standard_B2s \
+                --vnet-name vnet-eus2 \
+                --subnet snet-eus2-be \
+                --nsg vmss-be-bcd00-nsg \
+                --orchestration-mode Uniform \
+                --upgrade-policy-mode automatic \
+                --admin-username bcdbeuser00 \
+                --generate-ssh-keys \
+                --custom-data infra/cloud-init-optimized.yaml \
+                --assign-identity "$VMSS_BE_IDENTITY_ID" \
+                --load-balancer nlb-bcd00 \
+                --backend-pool-name backend-lb-pool \
+                --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/probe-for-port-4000" \
+                --location eastus2
+              echo "✅ Backend VMSS created successfully"
+            fi
           fi
           
           # Create Frontend VMSS only if it doesn't exist
-          if ! az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
-            echo "Creating Frontend VMSS..."
-            az vmss create \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.VMSS_FE }} \
-              --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
-              --instance-count 2 \
-              --vm-sku Standard_B2s \
-              --vnet-name vnet-eus2 \
-              --subnet snet-eus2-fe \
-              --nsg vmss-fe-bcd00-nsg \
-              --orchestration-mode Uniform \
-              --upgrade-policy-mode automatic \
-              --admin-username bcdfeuser00 \
-              --generate-ssh-keys \
-              --custom-data infra/cloud-init-frontend.yaml \
-              --assign-identity "$VMSS_FE_IDENTITY_ID" \
-              --load-balancer "" \
-              --location eastus2
-            echo "✅ Frontend VMSS created successfully"
-          else
+          echo "🔍 Checking Frontend VMSS existence..."
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
             echo "✅ Frontend VMSS already exists, skipping creation"
+          else
+            echo "❌ Frontend VMSS not found, will create"
+            
+            # Wait for any pending operations to complete
+            echo "⏳ Waiting for any pending operations..."
+            sleep 30
+            
+            # Double-check before creating
+            if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+              echo "✅ Frontend VMSS appeared during wait, skipping creation"
+            else
+              echo "Creating Frontend VMSS..."
+              az vmss create \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name ${{ env.VMSS_FE }} \
+                --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
+                --instance-count 2 \
+                --vm-sku Standard_B2s \
+                --vnet-name vnet-eus2 \
+                --subnet snet-eus2-fe \
+                --nsg vmss-fe-bcd00-nsg \
+                --orchestration-mode Uniform \
+                --upgrade-policy-mode automatic \
+                --admin-username bcdfeuser00 \
+                --generate-ssh-keys \
+                --custom-data infra/cloud-init-frontend.yaml \
+                --assign-identity "$VMSS_FE_IDENTITY_ID" \
+                --load-balancer "" \
+                --location eastus2
+              echo "✅ Frontend VMSS created successfully"
+            fi
           fi
 
       - name: Configure VMSS Managed Identity permissions
