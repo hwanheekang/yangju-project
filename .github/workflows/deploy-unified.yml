@@ -220,7 +220,7 @@ jobs:
 
   create-vmss:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push, deploy-infrastructure, check-vmss, setup-agw-health-probes]
+    needs: [setup, build-and-push, deploy-infrastructure, check-vmss, create-application-gateway, setup-agw-health-probes]
     environment: ${{ github.event.inputs.environment || 'dev' }}
     if: needs.setup.outputs.should_deploy_vmss == 'true'
     steps:
