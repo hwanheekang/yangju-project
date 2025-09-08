@@ -114,6 +114,7 @@ export default function Upload({ onClose, onUploadSuccess }) {
                 type="date"
                 name="transaction_date"
                 value={ocrResult.transaction_date ? ocrResult.transaction_date.slice(0,10) : ''}
+                max={new Date().toISOString().split('T')[0]} // 오늘 날짜까지만 선택 가능
                 onChange={e => setOcrResult({ ...ocrResult, transaction_date: e.target.value })}
                 style={{ marginLeft: 8 }}
               />
