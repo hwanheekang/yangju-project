@@ -18,13 +18,7 @@ function App() {
     '식비', '교통비', '고정지출', '통신비', '교육비',
     '여가활동', '의료비', '의류비', '경조사비', '기타'
   ]);
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    // 기본값: 닫힘. 사용자 선택을 localStorage에서 복원
-    if (typeof window === 'undefined') return false;
-    const stored = localStorage.getItem('sidebarOpen');
-    if (stored !== null) return stored === 'true';
-    return false;
-  });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'light';
     const stored = localStorage.getItem('theme');
@@ -45,7 +39,7 @@ function App() {
   };
 
   useEffect(() => {
-    const token = localStorage.getItem('jwtToken');
+    const token = sessionStorage.getItem('jwtToken');
     if (token) {
       setIsLoggedIn(true);
     }
@@ -79,12 +73,13 @@ function App() {
 
   // 핸들러 함수들
   const handleLoginSuccess = (token) => {
-    localStorage.setItem('jwtToken', token);
+    sessionStorage.setItem('jwtToken', token);
     setIsLoggedIn(true);
   };
   const handleLogout = () => {
-    localStorage.removeItem('jwtToken');
+    sessionStorage.removeItem('jwtToken');
     setIsLoggedIn(false);
+    setSidebarOpen(false); // 로그아웃 시 사이드바 닫힘 상태로
   };
     const handleSidebarToggle = () => {
     const newState = !sidebarOpen;
@@ -102,14 +97,14 @@ function App() {
   // 영수증 목록 fetch 함수
   const fetchReceipts = async () => {
     try {
-      const token = localStorage.getItem('jwtToken');
+      const token = sessionStorage.getItem('jwtToken');
       const res = await fetch('/api/receipts', {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
       setReceipts(data.receipts || []);
       return data.receipts || [];
-  } catch {
+    } catch {
       setReceipts([]);
       return [];
     }
