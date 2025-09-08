@@ -385,6 +385,15 @@ jobs:
         run: |
           echo "🏗️ Creating Frontend and Backend VMSS..."
           
+          # Create User-assigned Managed Identities first
+          echo "Creating User-assigned Managed Identities..."
+          az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --location eastus2 || echo "Backend identity may already exist"
+          az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --location eastus2 || echo "Frontend identity may already exist"
+          
+          # Get identity resource IDs
+          VMSS_BE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --query "id" -o tsv)
+          VMSS_FE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --query "id" -o tsv)
+          
           # Create Backend VMSS (since we checked it doesn't exist in check-vmss job)
           echo "Creating Backend VMSS..."
           az vmss create \
@@ -400,7 +409,7 @@ jobs:
             --admin-username bcdbeuser00 \
             --generate-ssh-keys \
             --custom-data infra/cloud-init-optimized.yaml \
-            --assign-identity \
+            --assign-identity "$VMSS_BE_IDENTITY_ID" \
             --location eastus2
           
           echo "✅ Backend VMSS created successfully"
@@ -420,7 +429,7 @@ jobs:
             --admin-username bcdfeuser00 \
             --generate-ssh-keys \
             --custom-data infra/cloud-init-frontend.yaml \
-            --assign-identity \
+            --assign-identity "$VMSS_FE_IDENTITY_ID" \
             --location eastus2
           
           echo "✅ Frontend VMSS created successfully"
@@ -432,8 +441,9 @@ jobs:
           # Wait a moment for VMSS to be fully ready
           sleep 30
           
-          # Configure Backend VMSS Identity
-          VMSS_BE_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "identity.principalId" -o tsv)
+          # Get User-assigned identity principal IDs
+          VMSS_BE_IDENTITY=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --query "principalId" -o tsv)
+          VMSS_FE_IDENTITY=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --query "principalId" -o tsv)
           
           if [ -n "$VMSS_BE_IDENTITY" ] && [ "$VMSS_BE_IDENTITY" != "null" ]; then
             echo "Configuring permissions for Backend VMSS Managed Identity: $VMSS_BE_IDENTITY"
@@ -459,9 +469,6 @@ jobs:
           else
             echo "Warning: Could not find Backend VMSS Managed Identity"
           fi
-          
-          # Configure Frontend VMSS Identity
-          VMSS_FE_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} --query "identity.principalId" -o tsv)
           
           if [ -n "$VMSS_FE_IDENTITY" ] && [ "$VMSS_FE_IDENTITY" != "null" ]; then
             echo "Configuring permissions for Frontend VMSS Managed Identity: $VMSS_FE_IDENTITY"
