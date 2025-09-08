@@ -257,12 +257,16 @@ jobs:
         run: |
           echo "Creating NSGs for both Frontend and Backend VMSS..."
           
-          # Create Backend NSG
-          az network nsg create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name vmss-be-bcd00-nsg \
-            --location eastus2 \
-            || echo "Backend NSG already exists"
+          # Create Backend NSG (skip if exists)
+          if ! az network nsg show --resource-group ${{ env.AZURE_RG }} --name vmss-be-bcd00-nsg >/dev/null 2>&1; then
+            echo "Creating Backend NSG..."
+            az network nsg create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name vmss-be-bcd00-nsg \
+              --location eastus2
+          else
+            echo "Backend NSG already exists"
+          fi
           
           # Add rule for port 4000 (backend application)
           az network nsg rule create \
@@ -277,12 +281,16 @@ jobs:
             --direction "Inbound" \
             || echo "Backend NSG rule already exists"
           
-          # Create Frontend NSG
-          az network nsg create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name vmss-fe-bcd00-nsg \
-            --location eastus2 \
-            || echo "Frontend NSG already exists"
+          # Create Frontend NSG (skip if exists)
+          if ! az network nsg show --resource-group ${{ env.AZURE_RG }} --name vmss-fe-bcd00-nsg >/dev/null 2>&1; then
+            echo "Creating Frontend NSG..."
+            az network nsg create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name vmss-fe-bcd00-nsg \
+              --location eastus2
+          else
+            echo "Frontend NSG already exists"
+          fi
           
           # Add rule for port 80 (frontend application)
           az network nsg rule create \
@@ -316,19 +324,27 @@ jobs:
         run: |
           echo "Creating SSH Keys for both VMSS..."
           
-          # Create Backend SSH Key
-          az sshkey create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name vmss-be-bcd00_key \
-            --location eastus2 \
-            || echo "Backend SSH key already exists"
+          # Create Backend SSH Key (skip if exists)
+          if ! az sshkey show --resource-group ${{ env.AZURE_RG }} --name vmss-be-bcd00_key >/dev/null 2>&1; then
+            echo "Creating Backend SSH key..."
+            az sshkey create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name vmss-be-bcd00_key \
+              --location eastus2
+          else
+            echo "Backend SSH key already exists"
+          fi
           
-          # Create Frontend SSH Key
-          az sshkey create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name vmss-fe-bcd00_key \
-            --location eastus2 \
-            || echo "Frontend SSH key already exists"
+          # Create Frontend SSH Key (skip if exists)
+          if ! az sshkey show --resource-group ${{ env.AZURE_RG }} --name vmss-fe-bcd00_key >/dev/null 2>&1; then
+            echo "Creating Frontend SSH key..."
+            az sshkey create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name vmss-fe-bcd00_key \
+              --location eastus2
+          else
+            echo "Frontend SSH key already exists"
+          fi
 
       - name: Check and create Application Gateway if needed
         run: |
@@ -387,8 +403,19 @@ jobs:
           
           # Create User-assigned Managed Identities first
           echo "Creating User-assigned Managed Identities..."
-          az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --location eastus2 || echo "Backend identity may already exist"
-          az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --location eastus2 || echo "Frontend identity may already exist"
+          if ! az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 >/dev/null 2>&1; then
+            echo "Creating Backend Managed Identity..."
+            az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --location eastus2
+          else
+            echo "Backend Managed Identity already exists"
+          fi
+          
+          if ! az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 >/dev/null 2>&1; then
+            echo "Creating Frontend Managed Identity..."
+            az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --location eastus2
+          else
+            echo "Frontend Managed Identity already exists"
+          fi
           
           # Get identity resource IDs
           VMSS_BE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --query "id" -o tsv)
