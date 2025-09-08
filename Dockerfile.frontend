@@ -22,8 +22,8 @@ RUN apk add --no-cache curl gettext
 # 정적 산출물 복사
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# 커스텀 nginx.conf (Front-End 폴더에서 복사) - Updated for proper path
-COPY Front-End/nginx.conf /etc/nginx/templates/default.conf.template
+# 커스텀 nginx.conf (빌드 컨텍스트가 Front-End이므로 현재 디렉토리에서 찾음)
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 
 EXPOSE 80
 
