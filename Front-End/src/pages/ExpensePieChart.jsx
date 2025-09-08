@@ -4,8 +4,25 @@ import { Chart, ArcElement, Tooltip, Legend } from 'chart.js';
 
 Chart.register(ArcElement, Tooltip, Legend);
 
-const COLORS = [
-  '#0078D4', '#00B4FF', '#6C63FF', '#FFB800', '#FF6B6B', '#00C49F', '#FF8C42', '#A259FF', '#FF5C8D', '#43E97B'
+// 카테고리별 고정 색상 매핑
+const CATEGORY_COLORS = {
+  '식비': '#FF6B6B',
+  '교통비': '#4ECDC4', 
+  '고정지출': '#45B7D1',
+  '통신비': '#96CEB4',
+  '교육비': '#FFEAA7',
+  '여가활동': '#DDA0DD',
+  '의료비': '#98D8C8',
+  '의류비': '#FFA07A',
+  '경조사비': '#F7DC6F',
+  '기타': '#BB8FCE',
+  '분류 대기': '#E8E8E8',
+  '미분류': '#E8E8E8'
+};
+
+// 기본 색상 배열 (매핑에 없는 카테고리용)
+const DEFAULT_COLORS = [
+  '#0078D4', '#00B4FF', '#6C63FF', '#FFB800', '#00C49F', '#FF8C42', '#A259FF', '#FF5C8D', '#43E97B'
 ];
 
 function groupByCategory(receipts) {
@@ -25,12 +42,17 @@ const ExpensePieChart = ({ receipts, selectedMonth, showTitle = true }) => {
   const textColor = rootEl ? (getComputedStyle(rootEl).getPropertyValue('--text')?.trim() || (isDark ? '#e7eaf0' : '#222c3a')) : '#222c3a';
   const borderColor = rootEl ? (getComputedStyle(rootEl).getPropertyValue('--border')?.trim() || (isDark ? '#334155' : '#e3e8ee')) : '#e3e8ee';
 
+  // 카테고리별 고정 색상 생성
+  const colors = dataArr.map((item, index) => {
+    return CATEGORY_COLORS[item.name] || DEFAULT_COLORS[index % DEFAULT_COLORS.length];
+  });
+
   const data = {
     labels: dataArr.map(d => d.name),
     datasets: [
       {
         data: dataArr.map(d => d.value),
-        backgroundColor: COLORS,
+        backgroundColor: colors,
         borderWidth: 2,
         borderColor,
       }
