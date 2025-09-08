@@ -43,15 +43,15 @@ export default function Home({ fetchReceipts, receipts }) {
   }, []);
 
   // Pull-to-refresh 이벤트 핸들러 - 최상단에서만 동작
-  const handleTouchStart = (e) => {
+  const handleTouchStart = React.useCallback((e) => {
     // 스크롤이 최상단(0)에 있을 때만 pull-to-refresh 시작
     if (window.scrollY === 0 && document.documentElement.scrollTop === 0) {
       setStartY(e.touches[0].clientY);
       setIsPulling(true);
     }
-  };
+  }, []);
 
-  const handleTouchMove = (e) => {
+  const handleTouchMove = React.useCallback((e) => {
     // 풀링 중이고 최상단에 있을 때만 처리
     if (!isPulling || window.scrollY !== 0 || document.documentElement.scrollTop !== 0) {
       return;
@@ -69,9 +69,9 @@ export default function Home({ fetchReceipts, receipts }) {
       setIsPulling(false);
       setPullDistance(0);
     }
-  };
+  }, [isPulling, startY]);
 
-  const handleTouchEnd = () => {
+  const handleTouchEnd = React.useCallback(() => {
     // 80px 이상 당기고 최상단에 있을 때만 새로고침 실행
     if (isPulling && pullDistance > 80 && 
         window.scrollY === 0 && document.documentElement.scrollTop === 0) {
@@ -82,7 +82,23 @@ export default function Home({ fetchReceipts, receipts }) {
     setIsPulling(false);
     setPullDistance(0);
     setStartY(0);
-  };
+  }, [isPulling, pullDistance, fetchReceipts]);
+
+  // Pull-to-refresh 터치 이벤트 등록 (passive: false로 preventDefault 가능하게)
+  React.useEffect(() => {
+    const container = document.querySelector('.dashboard-container');
+    if (!container) return;
+
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchmove', handleTouchMove, { passive: false });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
+
+    return () => {
+      container.removeEventListener('touchstart', handleTouchStart);
+      container.removeEventListener('touchmove', handleTouchMove);
+      container.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd]); // 의존성 배열 수정
 
   // 최초 로드 시 사용자 선호도 불러오기
   React.useEffect(() => {
@@ -215,9 +231,6 @@ export default function Home({ fetchReceipts, receipts }) {
   return (
   <div 
     className="dashboard-container"
-    onTouchStart={handleTouchStart}
-    onTouchMove={handleTouchMove}
-    onTouchEnd={handleTouchEnd}
   >
       {/* Pull-to-refresh 인디케이터 */}
       {isPulling && window.scrollY === 0 && (
