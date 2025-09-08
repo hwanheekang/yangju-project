@@ -178,3 +178,7 @@
 /* 캘린더 카드 컨테이너 색상 (Calendar.jsx에서 calendar-card 클래스 사용) */
 .calendar-card { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
 
+/* 영수증이 있는 주말(토/일) 날짜 색상 유지 */
+.react-calendar__tile.has-receipts.calendar-red { color: #ef4444 !important; }
+.react-calendar__tile.has-receipts.calendar-blue { color: #2563eb !important; }
+
