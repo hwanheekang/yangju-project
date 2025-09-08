@@ -5,7 +5,7 @@
     background-color: rgba(0, 0, 0, 0.7);
     display: grid;
     place-items: center; /* robust center without adding outer padding */
-    z-index: 1000;
+    z-index: 9999;
   }
   
   .modal-content {
@@ -26,18 +26,25 @@
     overflow-wrap: anywhere; /* prevent long text overflow */
     word-break: break-word;
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+     z-index: 10000;
   }
 
   /* Children can define intrinsic width; parent clamps with max-width */
   /* (removed global max-width:100% on direct children to allow content-driven sizing) */
 
   /* Receipt card should never overflow the modal */
-  .modal-content .receiptCard {
-    width: 100%;
-    max-width: 100%;
-    margin: 0;
-    box-sizing: border-box;
-  }
+.modal-content .receiptCard {
+  width: 100%;
+  max-width: calc(100% - 32px); /* 좌우 16px 여백 확보 */
+  margin: 0 auto; /* 가운데 정렬 */
+  padding: 16px; /* 내부 여백 */
+  box-sizing: border-box;
+  background: var(--bg-card);
+  color: var(--text);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05); /* 선택: 카드 구분용 */
+}
+
 
   /* Modal top bar with right-aligned close button */
   .modal-topbar {
@@ -79,6 +86,7 @@
     cursor: pointer;
     color: #000;
     appearance: none;
+    z-index: 10001;
   }
   .modal-close-button:hover { background: #f2f4f7; }
   [data-theme='dark'] .modal-close-button:hover { background: rgba(255,255,255,0.08); }
@@ -95,13 +103,13 @@
 
   /* Ensure the two nested wrappers inside modal-body control the modal size by content */
   .modal-body > div {
-    width: max-content;
-    max-width: 100%;
-  }
-  .modal-body > div > div {
-    width: max-content;
-    max-width: 100%;
-  }
+  width: 100%;
+  max-width: 100%;
+}
+.modal-body > div > div {
+  width: 100%;
+  max-width: 100%;
+}
 
   @media (max-width: 480px) {
     .modal-content {

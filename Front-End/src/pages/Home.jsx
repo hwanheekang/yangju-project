@@ -400,7 +400,7 @@ export default function Home({ fetchReceipts, receipts }) {
                   <h4 style={{ margin: 0 }}>{receipt.store_name || '상호명 없음'}</h4>
                 </div>
                 <div style={styles.receiptDetails} className="receiptDetails">
-                  <div><strong>거래일자:</strong> {receipt.transaction_date}</div>
+                  <div><strong>거래일자:</strong> {receipt.transaction_date ? receipt.transaction_date.slice(0, 10) : ''}</div>
                   <div><strong>카테고리:</strong> {receipt.category || '분류 대기'}</div>
                   <div><strong>금액:</strong> <span style={styles.amount} className="amount">{Number(receipt.total_amount).toLocaleString()}원</span></div>
                   <div><strong>메모:</strong> <span className="receipt-memo">{receipt.memo || '-'}</span></div>
@@ -464,7 +464,8 @@ const styles = {
     border: '1px solid #ddd',
     borderRadius: '8px',
     padding: '15px',
-    backgroundColor: '#f9f9f9',
+    backgroundColor: 'var(--bg-card)',
+    color: 'var(--text)',
     boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
   },
   receiptHeader: {

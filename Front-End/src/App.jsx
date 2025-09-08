@@ -18,7 +18,11 @@ function App() {
     '식비', '교통비', '고정지출', '통신비', '교육비',
     '여가활동', '의료비', '의류비', '경조사비', '기타'
   ]);
+<<<<<<< HEAD
   const [sidebarOpen, setSidebarOpen] = useState(() => {
+=======
+   const [sidebarOpen, setSidebarOpen] = useState(() => {
+>>>>>>> 9af36495966bd94b5754ea79f0fa1ef50f845b21
     // 기본값: 닫힘. 사용자 선택을 localStorage에서 복원
     if (typeof window === 'undefined') return false;
     const stored = localStorage.getItem('sidebarOpen');
@@ -128,26 +132,25 @@ function App() {
           <Sidebar onLogout={handleLogout} isOpen={sidebarOpen} onToggle={handleSidebarToggle} isLoggedIn={isLoggedIn} />
         )}
         
-        {/* 좌측 상단 컨트롤 영역 */}
-        {isLoggedIn && (
-          <div className="top-left-controls">
-            {/* 다크모드 토글 버튼 - 상단 */}
-            <button className="dark-mode-toggle" onClick={toggleTheme} aria-label="테마 전환">
-              {theme === 'dark' ? (
-                // Sun icon when in dark mode
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <circle cx="12" cy="12" r="4" />
-                  <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-                </svg>
-              ) : (
-                // Moon icon when in light mode
-                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M21.752 15.002A9 9 0 1112.998 2.248 7 7 0 0021.752 15.002z"/>
-                </svg>
-              )}
-            </button>
-            
-            {/* 사이드바 토글 버튼 - 하단 */}
+        {/* 좌측 상단 컨트롤 영역 - 로그인 여부와 상관없이 다크모드 토글 항상 표시 */}
+        <div className="top-left-controls">
+          {/* 다크모드 토글 버튼 - 상단 */}
+          <button className="dark-mode-toggle" onClick={toggleTheme} aria-label="테마 전환">
+            {theme === 'dark' ? (
+              // Sun icon when in dark mode
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+              </svg>
+            ) : (
+              // Moon icon when in light mode
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M21.752 15.002A9 9 0 1112.998 2.248 7 7 0 0021.752 15.002z"/>
+              </svg>
+            )}
+          </button>
+          {/* 사이드바 토글 버튼 - 로그인 상태에서만 노출 */}
+          {isLoggedIn && (
             <button className="sidebar-toggle" onClick={handleSidebarToggle} aria-label="사이드바 토글">
               {sidebarOpen ? (
                 // X 아이콘 (사이드바 열린 상태)
@@ -164,8 +167,8 @@ function App() {
                 </svg>
               )}
             </button>
-          </div>
-        )}
+          )}
+        </div>
         
         {/* 메인 컨텐츠 - 사이드바와 독립적으로 중앙 고정 */}
         <div className={isLoggedIn ? "main-content" : "main-content-login"}>
