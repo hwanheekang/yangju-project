@@ -79,6 +79,16 @@ jobs:
 
       - name: Configure VMSS Managed Identity (if needed)
         run: |
+          # 토큰 갱신을 위한 재로그인
+          echo "🔄 Azure 토큰 갱신 중..."
+          az logout 2>/dev/null || true
+          az login --service-principal \
+            --username ${{ secrets.AZURE_CLIENT_ID }} \
+            --password ${{ secrets.AZURE_CLIENT_SECRET }} \
+            --tenant ${{ secrets.AZURE_TENANT_ID }} \
+            --allow-no-subscriptions
+          az account set --subscription ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          
           # Check if VMSS exists and get its identity status
           VMSS_EXISTS=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_NAME }} --query "name" -o tsv 2>/dev/null || echo "")
           
@@ -114,13 +124,31 @@ jobs:
               --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
               2>/dev/null || echo "AcrPush role assignment skipped"
               
-            # Verify role assignments
+            # 토큰 갱신 후 재시도
+            echo "🔄 권한 검증을 위한 토큰 재갱신..."
+            az logout 2>/dev/null || true
+            az login --service-principal \
+              --username ${{ secrets.AZURE_CLIENT_ID }} \
+              --password ${{ secrets.AZURE_CLIENT_SECRET }} \
+              --tenant ${{ secrets.AZURE_TENANT_ID }} \
+              --allow-no-subscriptions
+            az account set --subscription ${{ vars.AZURE_SUBSCRIPTION_ID }}
+              
+            # Verify role assignments with retry
             echo "Verifying role assignments..."
-            az role assignment list \
-              --assignee "$VMSS_IDENTITY" \
-              --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
-              --query "[].{Role:roleDefinitionName, Scope:scope}" \
-              -o table
+            for attempt in {1..3}; do
+              if az role assignment list \
+                --assignee "$VMSS_IDENTITY" \
+                --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+                --query "[].{Role:roleDefinitionName, Scope:scope}" \
+                -o table; then
+                echo "✅ 권한 검증 성공"
+                break
+              else
+                echo "⚠️ 권한 검증 실패 - 재시도 $attempt/3"
+                sleep 10
+              fi
+            done
           else
             echo "Error: Failed to get VMSS Managed Identity"
             exit 1
