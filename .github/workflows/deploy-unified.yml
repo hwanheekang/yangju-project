@@ -389,57 +389,6 @@ jobs:
             echo "Frontend SSH key already exists"
           fi
 
-      - name: Check and create Application Gateway if needed
-        run: |
-          echo "🌐 Checking Application Gateway requirements..."
-          
-          # Check if Application Gateway subnet exists
-          if az network vnet subnet show --resource-group ${{ env.AZURE_RG }} --vnet-name vnet-eus2 --name snet-eus2-agw >/dev/null 2>&1; then
-            echo "✅ Application Gateway subnet (snet-eus2-agw) exists"
-            
-            # Check if Application Gateway already exists
-            if az network application-gateway show --resource-group ${{ env.AZURE_RG }} --name agw-bcd00 >/dev/null 2>&1; then
-              echo "✅ Application Gateway (agw-bcd00) already exists"
-              echo "AGW_EXISTS=true" >> $GITHUB_ENV
-            else
-              echo "⚠️ Application Gateway (agw-bcd00) not found - will create"
-              echo "AGW_EXISTS=false" >> $GITHUB_ENV
-              
-              # Create Public IP for Application Gateway
-              echo "Creating Public IP for Application Gateway..."
-              az network public-ip create \
-                --resource-group ${{ env.AZURE_RG }} \
-                --name pip-agw-bcd00 \
-                --allocation-method Static \
-                --sku Standard \
-                --location eastus2 \
-                || echo "Public IP already exists"
-              
-              # Create Application Gateway
-              echo "Creating Application Gateway..."
-              az network application-gateway create \
-                --resource-group ${{ env.AZURE_RG }} \
-                --name agw-bcd00 \
-                --location eastus2 \
-                --sku Standard_v2 \
-                --capacity 2 \
-                --vnet-name vnet-eus2 \
-                --subnet snet-eus2-agw \
-                --public-ip-address pip-agw-bcd00 \
-                --http-settings-cookie-based-affinity Enabled \
-                --frontend-port 80 \
-                --http-settings-port 80 \
-                --http-settings-protocol Http \
-                --priority 100
-              
-              echo "✅ Application Gateway created successfully"
-              echo "AGW_EXISTS=true" >> $GITHUB_ENV
-            fi
-          else
-            echo "⚠️ Application Gateway subnet (snet-eus2-agw) not found - will skip Application Gateway creation"
-            echo "AGW_EXISTS=false" >> $GITHUB_ENV
-          fi
-
       - name: Create VMSS instances (Enhanced with Auto Managed Identity)
         run: |
           echo "🏗️ Creating Frontend and Backend VMSS with automatic managed identity setup..."
@@ -838,9 +787,75 @@ jobs:
           echo "  🔸 Backend API Traffic: Application Gateway → Load Balancer → Backend VMSS"
           echo "  🔸 Routing: /* → Frontend Pool, /api/* → Backend Pool"
 
+  create-application-gateway:
+    runs-on: ubuntu-latest
+    needs: [setup, build-and-push, deploy-infrastructure, check-vmss]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: needs.setup.outputs.should_deploy_vmss == 'true' && needs.check-vmss.outputs.vmss_configured == 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check and create Application Gateway if needed
+        run: |
+          echo "🌐 Checking Application Gateway requirements..."
+          
+          # Check if Application Gateway subnet exists
+          if az network vnet subnet show --resource-group ${{ env.AZURE_RG }} --vnet-name vnet-eus2 --name snet-eus2-agw >/dev/null 2>&1; then
+            echo "✅ Application Gateway subnet (snet-eus2-agw) exists"
+            
+            # Check if Application Gateway already exists
+            if az network application-gateway show --resource-group ${{ env.AZURE_RG }} --name agw-bcd00 >/dev/null 2>&1; then
+              echo "✅ Application Gateway (agw-bcd00) already exists"
+              echo "AGW_EXISTS=true" >> $GITHUB_ENV
+            else
+              echo "⚠️ Application Gateway (agw-bcd00) not found - will create"
+              echo "AGW_EXISTS=false" >> $GITHUB_ENV
+              
+              # Create Public IP for Application Gateway
+              echo "Creating Public IP for Application Gateway..."
+              az network public-ip create \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name pip-agw-bcd00 \
+                --allocation-method Static \
+                --sku Standard \
+                --location eastus2 \
+                || echo "Public IP already exists"
+              
+              # Create Application Gateway
+              echo "Creating Application Gateway..."
+              az network application-gateway create \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name agw-bcd00 \
+                --location eastus2 \
+                --sku Standard_v2 \
+                --capacity 2 \
+                --vnet-name vnet-eus2 \
+                --subnet snet-eus2-agw \
+                --public-ip-address pip-agw-bcd00 \
+                --http-settings-cookie-based-affinity Enabled \
+                --frontend-port 80 \
+                --http-settings-port 80 \
+                --http-settings-protocol Http \
+                --priority 100
+              
+              echo "✅ Application Gateway created successfully"
+              echo "AGW_EXISTS=true" >> $GITHUB_ENV
+            fi
+          else
+            echo "⚠️ Application Gateway subnet (snet-eus2-agw) not found - will skip Application Gateway creation"
+            echo "AGW_EXISTS=false" >> $GITHUB_ENV
+          fi
+
   setup-agw-health-probes:
     if: ${{ inputs.deployment_target == 'vmss-only' || inputs.deployment_target == 'both' }}
-    needs: [setup, build-and-push, deploy-infrastructure]
+    needs: [create-application-gateway]
     runs-on: ubuntu-latest
     
     steps:
@@ -1226,7 +1241,7 @@ jobs:
 
   real-time-diagnostics:
     runs-on: ubuntu-latest
-    needs: [setup, create-vmss, deploy-vmss]
+    needs: [setup, create-application-gateway, create-vmss, deploy-vmss]
     environment: ${{ github.event.inputs.environment || 'dev' }}
     if: needs.setup.outputs.should_deploy_vmss == 'true' && (needs.create-vmss.result == 'success' || needs.deploy-vmss.result == 'success')
     steps:
@@ -1412,7 +1427,7 @@ jobs:
 
   health-check:
     runs-on: ubuntu-latest
-    needs: [setup, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp, real-time-diagnostics, auto-fix-vmss]
+    needs: [setup, check-vmss, check-webapp, create-application-gateway, create-vmss, deploy-vmss, deploy-webapp, real-time-diagnostics, auto-fix-vmss]
     if: always() && (needs.deploy-vmss.result == 'success' || needs.deploy-webapp.result == 'success' || needs.check-vmss.outputs.vmss_configured == 'true' || needs.check-webapp.outputs.webapp_configured == 'true')
     environment: ${{ github.event.inputs.environment || 'dev' }}
     steps:
@@ -1503,7 +1518,7 @@ jobs:
 
   summary:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp, health-check, auto-fix-vmss]
+    needs: [setup, build-and-push, check-vmss, check-webapp, create-application-gateway, create-vmss, deploy-vmss, deploy-webapp, health-check, auto-fix-vmss]
     if: always()
     steps:
       - name: Deployment Summary
