@@ -1,0 +1,120 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-plugin
+  - ca-certificates
+  - curl
+  - jq
+
+timezone: Asia/Seoul
+
+write_files:
+  - path: /opt/yangju/docker-compose.yml
+    permissions: '0644'
+    content: |
+      version: "3.8"
+      services:
+        frontend:
+          image: acrbcd00.azurecr.io/frontend:${IMAGE_TAG}
+          container_name: yangju-frontend
+          restart: always
+          ports:
+            - "80:80"
+          environment:
+            BACKEND_SCHEME: ${BACKEND_SCHEME:-http}
+            BACKEND_HOST: ${BACKEND_HOST_OVERRIDE:-backend}
+            BACKEND_PORT: "4000"
+          healthcheck:
+            # root path returns 200 (static landing)
+            test: ["CMD", "curl", "-f", "http://localhost/" ]
+            interval: 30s
+            timeout: 5s
+            retries: 5
+            start_period: 8s
+          logging:
+            driver: "json-file"
+            options:
+              max-size: "10m"
+              max-file: "3"
+          mem_limit: 384m
+          cpus: "0.50"
+      networks:
+        default:
+          name: yangju-net
+
+  - path: /usr/local/bin/acr-login.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      REG="acrbcd00"
+      echo "[INFO] ACR login(frontend): $REG"
+      if command -v az >/dev/null 2>&1; then
+        az login --identity --allow-no-subscriptions >/dev/null 2>&1 || echo "[WARN] MI login failed"
+        az acr login --name "$REG" || echo "[WARN] ACR login failed"
+      else
+        echo "[WARN] az CLI not present yet"
+      fi
+
+  - path: /etc/systemd/system/yangju.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Yangju Frontend Stack
+      After=docker.service network-online.target
+      Wants=docker.service network-online.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/yangju
+      ExecStartPre=/usr/local/bin/acr-login.sh
+      ExecStart=/usr/local/bin/yangju-compose-run-frontend.sh
+      ExecReload=/usr/local/bin/yangju-compose-run-frontend.sh
+      ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+      Restart=always
+      RestartSec=8
+      TimeoutStartSec=120
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/bin/yangju-compose-run-frontend.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      cd /opt/yangju
+      FILE=docker-compose.yml
+      export IMAGE_TAG="${IMAGE_TAG:-latest}"
+      MAX=5
+      for step in pull up; do
+        attempt=1
+        while true; do
+          echo "[INFO][frontend] docker compose ${step} attempt ${attempt}/${MAX}" >&2
+            if [ "$step" = pull ]; then
+              /usr/bin/docker compose -f $FILE pull && break || true
+            else
+              /usr/bin/docker compose -f $FILE up -d && break || true
+            fi
+          if [ $attempt -ge $MAX ]; then
+            echo "[ERROR][frontend] docker compose ${step} failed after ${MAX} attempts" >&2
+            exit 1
+          fi
+          sleep $((attempt*5))
+          attempt=$((attempt+1))
+        done
+      done
+      exit 0
+
+runcmd:
+  - timedatectl set-timezone Asia/Seoul
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+  - usermod -aG docker bcdfeuser00 || true
+  - systemctl enable --now docker
+  - systemctl daemon-reload
+  - systemctl enable yangju.service
+  - systemctl start yangju.service
+
+final_message: "frontend cloud-init complete"

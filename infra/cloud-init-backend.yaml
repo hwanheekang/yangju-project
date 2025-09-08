@@ -1,0 +1,223 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose-plugin
+  - ca-certificates
+  - curl
+  - jq
+
+timezone: Asia/Seoul
+
+write_files:
+  - path: /opt/yangju/docker-compose.yml
+    permissions: '0644'
+    content: |
+      version: "3.8"
+      services:
+        backend:
+          image: acrbcd00.azurecr.io/backend:${IMAGE_TAG}
+          container_name: yangju-backend
+          restart: always
+          ports:
+            - "4000:4000"
+          env_file:
+            - .env
+          healthcheck:
+            test: ["CMD","curl","-f","http://localhost:4000/health"]
+            interval: 30s
+            timeout: 5s
+            retries: 5
+            # extended for initial package installs (azure-cli etc)
+            start_period: 90s
+          logging:
+            driver: "json-file"
+            options:
+              max-size: "10m"
+              max-file: "3"
+          mem_limit: 512m
+          cpus: "1.00"
+      networks:
+        default:
+          name: yangju-net
+
+  - path: /usr/local/bin/fetch-secrets.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      KV_NAME="${KV_NAME:-kv-bcd00}"
+      ENV_FILE="/opt/yangju/.env"
+      TMP="$(mktemp)"
+
+      retry() {
+        local n=0 max=3 delay=5
+        while true; do
+          "$@" && return 0
+          n=$((n+1))
+            if [ $n -ge $max ]; then
+              echo "[WARN] $* final failure" >&2
+              return 1
+            fi
+          echo "[INFO] retry $n/$max $*" >&2
+          sleep $delay
+        done
+      }
+
+      if command -v az >/dev/null 2>&1; then
+        retry az login --identity --allow-no-subscriptions >/dev/null 2>&1 || echo "[WARN] az login failed, using fallbacks"
+      else
+        echo "[WARN] az CLI missing, using fallbacks"
+      fi
+
+      fetch() { az keyvault secret show --vault-name "$KV_NAME" --name "$1" --query value -o tsv 2>/dev/null || echo ""; }
+      safe() { if command -v az >/dev/null 2>&1; then fetch "$1"; else echo ""; fi; }
+
+      # Attempt real secrets (fallback to changeme values)
+      JWT_SECRET="$(safe JWT-SECRET)"; [ -n "$JWT_SECRET" ] || JWT_SECRET="changeme-jwt-$RANDOM"
+      DB_SERVER="$(safe DB-SERVER)"; [ -n "$DB_SERVER" ] || DB_SERVER="localhost"
+      DB_DATABASE="$(safe DB-DATABASE)"; [ -n "$DB_DATABASE" ] || DB_DATABASE="changeme_db"
+      DB_USER="$(safe DB-USER)"; [ -n "$DB_USER" ] || DB_USER="changeme_user"
+      DB_PASSWORD="$(safe DB-PASSWORD)"; [ -n "$DB_PASSWORD" ] || DB_PASSWORD="changeme_password"
+      DI_ENDPOINT="$(safe DI-ENDPOINT)"; [ -n "$DI_ENDPOINT" ] || DI_ENDPOINT="https://dummy-di.local"
+      AZURE_DI_KEY="$(safe AZURE-DI-KEY)"; [ -n "$AZURE_DI_KEY" ] || AZURE_DI_KEY="dummy-di-key"
+      DI_MODEL_ID="$(safe DI-MODEL-ID)"; [ -n "$DI_MODEL_ID" ] || DI_MODEL_ID="prebuilt-receipt"
+      STORAGE_ACCOUNT_NAME="$(safe STORAGE-ACCOUNT-NAME)"; [ -n "$STORAGE_ACCOUNT_NAME" ] || STORAGE_ACCOUNT_NAME="devstorage"
+      STORAGE_ACCOUNT_KEY="$(safe STORAGE-ACCOUNT-KEY)"; [ -n "$STORAGE_ACCOUNT_KEY" ] || STORAGE_ACCOUNT_KEY="devstoragekey=="
+      BLOB_CONTAINER_NAME="$(safe AZURE-BLOB-CONTAINER-NAME)"; [ -n "$BLOB_CONTAINER_NAME" ] || BLOB_CONTAINER_NAME="receipts-data"
+      CORS_ORIGINS="$(safe CORS-ORIGINS)"; [ -n "$CORS_ORIGINS" ] || CORS_ORIGINS="http://localhost:5173"
+
+      APP_ENV="production"
+      DEPLOY_TARGETS="vmss"
+      LOG_LEVEL="info"
+      DI_API_VERSION="2023-07-31"
+      GIT_COMMIT="__GIT_SHA__"
+      DB_CONN_TIMEOUT_MS="60000"
+      DB_REQUEST_TIMEOUT_MS="60000"
+      DB_POOL_MAX="5"
+      DB_POOL_MIN="0"
+      DB_POOL_IDLE_TIMEOUT_MS="30000"
+  IMAGE_TAG="${IMAGE_TAG:-latest}"
+
+      cat > "$TMP" <<EOF
+      NODE_ENV=production
+      APP_ENV=$APP_ENV
+      DEPLOY_TARGETS=$DEPLOY_TARGETS
+      LOG_LEVEL=$LOG_LEVEL
+      GIT_COMMIT=$GIT_COMMIT
+      DI_API_VERSION=$DI_API_VERSION
+      PORT=4000
+      SKIP_DB_FATAL=1
+      DB_EARLY_CONNECT=0
+      CORS_ORIGINS=$CORS_ORIGINS
+      AZURE_STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT_NAME
+      AZURE_STORAGE_ACCOUNT_KEY=$STORAGE_ACCOUNT_KEY
+      AZURE_BLOB_CONTAINER_NAME=$BLOB_CONTAINER_NAME
+      AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=$DI_ENDPOINT
+      AZURE_DOCUMENT_INTELLIGENCE_KEY=$AZURE_DI_KEY
+      DI_MODEL_ID=$DI_MODEL_ID
+      DB_SERVER=$DB_SERVER
+      DB_DATABASE=$DB_DATABASE
+      DB_USER=$DB_USER
+      DB_PASSWORD=$DB_PASSWORD
+      DB_PORT=1433
+      DB_CONN_TIMEOUT_MS=$DB_CONN_TIMEOUT_MS
+      DB_REQUEST_TIMEOUT_MS=$DB_REQUEST_TIMEOUT_MS
+      DB_POOL_MAX=$DB_POOL_MAX
+      DB_POOL_MIN=$DB_POOL_MIN
+      DB_POOL_IDLE_TIMEOUT_MS=$DB_POOL_IDLE_TIMEOUT_MS
+      JWT_SECRET=$JWT_SECRET
+  IMAGE_TAG=$IMAGE_TAG
+      EOF
+
+      mv "$TMP" "$ENV_FILE"
+      chmod 600 "$ENV_FILE"
+      echo "[INFO] .env generated with fallbacks"
+
+  - path: /usr/local/bin/acr-login.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      REG="acrbcd00"
+      echo "[INFO] ACR login $REG"
+      az login --identity --allow-no-subscriptions >/dev/null 2>&1 || echo "[WARN] MI login failed"
+      az acr login --name "$REG" || echo "[WARN] ACR login failed"
+
+  - path: /etc/systemd/system/yangju-secrets.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Fetch secrets (fallback safe)
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathExists=!/opt/yangju/.env
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/fetch-secrets.sh
+      RemainAfterExit=yes
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/yangju.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Yangju Backend
+      After=docker.service network-online.target yangju-secrets.service
+      Wants=docker.service network-online.target yangju-secrets.service
+      Requires=yangju-secrets.service
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/yangju
+      ExecStartPre=/usr/local/bin/acr-login.sh
+      ExecStart=/usr/local/bin/yangju-compose-run.sh
+      ExecReload=/usr/local/bin/yangju-compose-run.sh
+      ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+      Restart=always
+      RestartSec=8
+      TimeoutStartSec=180
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/bin/yangju-compose-run.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      cd /opt/yangju
+      FILE=docker-compose.yml
+  export IMAGE_TAG="${IMAGE_TAG:-latest}"
+      MAX=5
+      for step in pull up; do
+        attempt=1
+        while true; do
+          echo "[INFO] docker compose ${step} attempt ${attempt}/${MAX}" >&2
+          if [ "$step" = pull ]; then
+            /usr/bin/docker compose -f $FILE pull && break || true
+          else
+            /usr/bin/docker compose -f $FILE up -d && break || true
+          fi
+          if [ $attempt -ge $MAX ]; then
+            echo "[ERROR] docker compose ${step} failed after ${MAX} attempts" >&2
+            exit 1
+          fi
+          sleep $((attempt*5))
+          attempt=$((attempt+1))
+        done
+      done
+      exit 0
+
+runcmd:
+  - timedatectl set-timezone Asia/Seoul
+  - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
+  - usermod -aG docker bcdbeuser00 || true
+  - systemctl enable --now docker
+  - systemctl daemon-reload
+  - systemctl enable yangju-secrets.service
+  - systemctl start yangju-secrets.service
+  - systemctl enable yangju.service
+  - systemctl start yangju.service
+
+final_message: backend cloud-init complete

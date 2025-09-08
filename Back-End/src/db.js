@@ -57,12 +57,15 @@ async function connectWithRetry(retries = 3) {
 
 try {
   await connectWithRetry(3);
-  // Minimal connect log
   const dbNameResult = await pool.request().query('SELECT DB_NAME() AS dbname');
   console.log('Database connected:', dbNameResult.recordset[0].dbname);
 } catch (err) {
-  console.error('Database Connection Failed! Bad Config or Network:', err);
-  process.exit(1);
+  if (process.env.SKIP_DB_FATAL === '1') {
+    console.error('[WARN] Database connection failed, continuing in degraded mode (SKIP_DB_FATAL=1):', err?.message || err);
+  } else {
+    console.error('Database Connection Failed! Bad Config or Network:', err);
+    process.exit(1);
+  }
 }
 
 export { sql, pool };
