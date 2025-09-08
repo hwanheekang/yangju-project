@@ -155,10 +155,12 @@ export default function Upload({ onClose, onUploadSuccess }) {
             </div>
           </div>
           <p>내용이 맞으신가요?</p>
-          <button onClick={handleFinalConfirm} disabled={isLoading}>
-            {isLoading ? '저장 중...' : '확인'}
-          </button>
-          <button onClick={() => setStep('upload')} disabled={isLoading}>다시 선택</button>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button onClick={handleFinalConfirm} disabled={isLoading}>
+              {isLoading ? '저장 중...' : '확인'}
+            </button>
+            <button onClick={() => setStep('upload')} disabled={isLoading}>다시 선택</button>
+          </div>
         </div>
       );
     }
@@ -166,7 +168,6 @@ export default function Upload({ onClose, onUploadSuccess }) {
     // 기본적으로 'upload' 단계를 보여줌
     return (
       <div>
-        <h2>영수증 업로드</h2>
         <input
           type="file"
           onChange={handleFileChange}
@@ -178,7 +179,7 @@ export default function Upload({ onClose, onUploadSuccess }) {
             <img src={preview} alt="미리보기" style={{ maxWidth: '100%', maxHeight: '200px' }} />
           </div>
         )}
-        <div style={{ marginTop: '20px' }}>
+        <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
           <button onClick={handleSubmit} disabled={isLoading}>
             {isLoading ? '처리 중...' : '업로드'}
           </button>

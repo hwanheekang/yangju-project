@@ -385,7 +385,7 @@ export default function Home({ fetchReceipts, receipts }) {
   </div>
 
   {/* 레이아웃 순서 적용: order에 따라 DOM 순서 바꾸기 */}
-      <Modal isOpen={isModalOpen} onClose={closeModal}>
+      <Modal isOpen={isModalOpen} onClose={closeModal} title="영수증 업로드">
         <Upload onClose={closeModal} onUploadSuccess={fetchReceipts} />
       </Modal>
       {/* 캘린더 날짜 클릭 시 해당 영수증 목록 모달 */}
@@ -416,7 +416,7 @@ export default function Home({ fetchReceipts, receipts }) {
       </Modal>
 
       {/* 수정 모달 */}
-      <Modal isOpen={editModalOpen} onClose={() => { setEditId(null); setEditModalOpen(false); }}>
+      <Modal isOpen={editModalOpen} onClose={() => { setEditId(null); setEditModalOpen(false); }} title="영수증 수정">
         <div style={{ marginTop: '8px', background: '#eef', padding: '10px', borderRadius: '6px' }}>
           <div><label>상호명: <input type="text" value={editFields.store_name} onChange={e => setEditFields(f => ({ ...f, store_name: e.target.value }))} className="input" style={styles.input} /></label></div>
           <div><label>거래일자: <input type="date" value={editFields.transaction_date} onChange={e => setEditFields(f => ({ ...f, transaction_date: e.target.value }))} className="input" style={styles.input} /></label></div>
