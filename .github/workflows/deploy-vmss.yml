@@ -197,7 +197,6 @@ jobs:
               sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
               echo '=== VMSS Application Update Complete ==='
             " \
-            --timeout 300 \
             --query 'value[0].message' -o tsv
 
       - name: Verify deployment
