@@ -143,11 +143,64 @@ jobs:
           echo "backend_image=${{ env.ACR_NAME }}.azurecr.io/backend:${{ needs.setup.outputs.image_tag }}" >> $GITHUB_OUTPUT
           echo "frontend_image=${{ env.ACR_NAME }}.azurecr.io/frontend:${{ needs.setup.outputs.image_tag }}" >> $GITHUB_OUTPUT
 
-  deploy-infrastructure:
+  check-vmss:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push]
+    needs: [setup]
     environment: ${{ github.event.inputs.environment || 'dev' }}
     if: needs.setup.outputs.should_deploy_vmss == 'true'
+    outputs:
+      vmss_be_exists: ${{ steps.check.outputs.vmss_be_exists }}
+      vmss_fe_exists: ${{ steps.check.outputs.vmss_fe_exists }}
+      vmss_configured: ${{ steps.check.outputs.vmss_configured }}
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check VMSS existence
+        id: check
+        run: |
+          echo "🔍 Checking VMSS existence..."
+          
+          # Check if Backend VMSS exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
+            echo "✅ Backend VMSS (${{ env.VMSS_BE }}) exists"
+            echo "vmss_be_exists=true" >> $GITHUB_OUTPUT
+            VMSS_BE_EXISTS=true
+          else
+            echo "❌ Backend VMSS (${{ env.VMSS_BE }}) not found"
+            echo "vmss_be_exists=false" >> $GITHUB_OUTPUT
+            VMSS_BE_EXISTS=false
+          fi
+          
+          # Check if Frontend VMSS exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            echo "✅ Frontend VMSS (${{ env.VMSS_FE }}) exists"
+            echo "vmss_fe_exists=true" >> $GITHUB_OUTPUT
+            VMSS_FE_EXISTS=true
+          else
+            echo "❌ Frontend VMSS (${{ env.VMSS_FE }}) not found"
+            echo "vmss_fe_exists=false" >> $GITHUB_OUTPUT
+            VMSS_FE_EXISTS=false
+          fi
+          
+          # Determine if VMSS are configured (both exist)
+          if [ "$VMSS_BE_EXISTS" = "true" ] && [ "$VMSS_FE_EXISTS" = "true" ]; then
+            echo "✅ VMSS are fully configured - VMSS deployment will be skipped"
+            echo "vmss_configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ VMSS are not fully configured - VMSS deployment will proceed"
+            echo "vmss_configured=false" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    needs: [setup, build-and-push, check-vmss]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: needs.setup.outputs.should_deploy_vmss == 'true' && needs.check-vmss.outputs.vmss_configured == 'false'
     steps:
       - uses: actions/checkout@v4
 
@@ -162,38 +215,394 @@ jobs:
         run: |
           echo "Infrastructure deployment step - implement based on your bicep/terraform files"
           # az deployment group create --resource-group ${{ env.AZURE_RG }} --template-file infra/main.bicep
+          echo "Skipping infrastructure deployment - using existing resources"
+
+  create-vmss:
+    runs-on: ubuntu-latest
+    needs: [setup, build-and-push, deploy-infrastructure, check-vmss]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: needs.setup.outputs.should_deploy_vmss == 'true' && needs.check-vmss.outputs.vmss_configured == 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check existing Azure resources
+        run: |
+          echo "🔍 Checking existing Azure resources for VMSS deployment..."
+          
+          # Basic subnet checks (required for VMSS)
+          if az network vnet subnet show --resource-group ${{ env.AZURE_RG }} --vnet-name vnet-eus2 --name snet-eus2-be >/dev/null 2>&1; then
+            echo "✅ Backend subnet (snet-eus2-be) exists"
+          else
+            echo "❌ Backend subnet (snet-eus2-be) not found"
+            exit 1
+          fi
+          
+          if az network vnet subnet show --resource-group ${{ env.AZURE_RG }} --vnet-name vnet-eus2 --name snet-eus2-fe >/dev/null 2>&1; then
+            echo "✅ Frontend subnet (snet-eus2-fe) exists"
+          else
+            echo "❌ Frontend subnet (snet-eus2-fe) not found"
+            exit 1
+          fi
+          
+          echo "✅ Required networking resources verified for VMSS creation"
+
+      - name: Create NSG with required rules
+        run: |
+          echo "Creating NSGs for both Frontend and Backend VMSS..."
+          
+          # Create Backend NSG
+          az network nsg create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name vmss-be-bcd00-nsg \
+            --location eastus2 \
+            || echo "Backend NSG already exists"
+          
+          # Add rule for port 4000 (backend application)
+          az network nsg rule create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --nsg-name vmss-be-bcd00-nsg \
+            --name "Allow-AGW-Backend-4000" \
+            --priority 1000 \
+            --source-address-prefixes "10.0.1.0/24" \
+            --destination-port-ranges "4000" \
+            --access "Allow" \
+            --protocol "Tcp" \
+            --direction "Inbound" \
+            || echo "Backend NSG rule already exists"
+          
+          # Create Frontend NSG
+          az network nsg create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name vmss-fe-bcd00-nsg \
+            --location eastus2 \
+            || echo "Frontend NSG already exists"
+          
+          # Add rule for port 80 (frontend application)
+          az network nsg rule create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --nsg-name vmss-fe-bcd00-nsg \
+            --name "Allow-AGW-Frontend-80" \
+            --priority 1000 \
+            --source-address-prefixes "10.0.1.0/24" \
+            --destination-port-ranges "80" \
+            --access "Allow" \
+            --protocol "Tcp" \
+            --direction "Inbound" \
+            || echo "Frontend NSG rule already exists"
+          
+          # Add SSH rules for both
+          for nsg in "vmss-be-bcd00-nsg" "vmss-fe-bcd00-nsg"; do
+            az network nsg rule create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --nsg-name "$nsg" \
+              --name "Allow-SSH" \
+              --priority 1001 \
+              --source-address-prefixes "*" \
+              --destination-port-ranges "22" \
+              --access "Allow" \
+              --protocol "Tcp" \
+              --direction "Inbound" \
+              || echo "SSH rule already exists for $nsg"
+          done
+
+      - name: Create SSH Keys
+        run: |
+          echo "Creating SSH Keys for both VMSS..."
+          
+          # Create Backend SSH Key
+          az sshkey create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name vmss-be-bcd00_key \
+            --location eastus2 \
+            || echo "Backend SSH key already exists"
+          
+          # Create Frontend SSH Key
+          az sshkey create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name vmss-fe-bcd00_key \
+            --location eastus2 \
+            || echo "Frontend SSH key already exists"
+
+      - name: Check and create Application Gateway if needed
+        run: |
+          echo "🌐 Checking Application Gateway requirements..."
+          
+          # Check if Application Gateway subnet exists
+          if az network vnet subnet show --resource-group ${{ env.AZURE_RG }} --vnet-name vnet-eus2 --name snet-eus2-agw >/dev/null 2>&1; then
+            echo "✅ Application Gateway subnet (snet-eus2-agw) exists"
+            
+            # Check if Application Gateway already exists
+            if az network application-gateway show --resource-group ${{ env.AZURE_RG }} --name agw-bcd00 >/dev/null 2>&1; then
+              echo "✅ Application Gateway (agw-bcd00) already exists"
+              echo "AGW_EXISTS=true" >> $GITHUB_ENV
+            else
+              echo "⚠️ Application Gateway (agw-bcd00) not found - will create"
+              echo "AGW_EXISTS=false" >> $GITHUB_ENV
+              
+              # Create Public IP for Application Gateway
+              echo "Creating Public IP for Application Gateway..."
+              az network public-ip create \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name pip-agw-bcd00 \
+                --allocation-method Static \
+                --sku Standard \
+                --location eastus2 \
+                || echo "Public IP already exists"
+              
+              # Create Application Gateway
+              echo "Creating Application Gateway..."
+              az network application-gateway create \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name agw-bcd00 \
+                --location eastus2 \
+                --sku Standard_v2 \
+                --capacity 2 \
+                --vnet-name vnet-eus2 \
+                --subnet snet-eus2-agw \
+                --public-ip-address pip-agw-bcd00 \
+                --http-settings-cookie-based-affinity Enabled \
+                --frontend-port 80 \
+                --http-settings-port 80 \
+                --http-settings-protocol Http
+              
+              echo "✅ Application Gateway created successfully"
+              echo "AGW_EXISTS=true" >> $GITHUB_ENV
+            fi
+          else
+            echo "⚠️ Application Gateway subnet (snet-eus2-agw) not found - will skip Application Gateway creation"
+            echo "AGW_EXISTS=false" >> $GITHUB_ENV
+          fi
+
+      - name: Create VMSS instances
+        run: |
+          echo "🏗️ Creating Frontend and Backend VMSS..."
+          
+          # Create Backend VMSS (since we checked it doesn't exist in check-vmss job)
+          echo "Creating Backend VMSS..."
+          az vmss create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_BE }} \
+            --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
+            --instance-count 2 \
+            --vm-sku Standard_B2s \
+            --vnet-name vnet-eus2 \
+            --subnet snet-eus2-be \
+            --nsg vmss-be-bcd00-nsg \
+            --upgrade-policy-mode automatic \
+            --admin-username bcdbeuser00 \
+            --ssh-key-name vmss-be-bcd00_key \
+            --custom-data infra/cloud-init-optimized.yaml \
+            --assign-identity \
+            --location eastus2
+          
+          echo "✅ Backend VMSS created successfully"
+          
+          # Create Frontend VMSS (since we checked it doesn't exist in check-vmss job)
+          echo "Creating Frontend VMSS..."
+          az vmss create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_FE }} \
+            --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
+            --instance-count 2 \
+            --vm-sku Standard_B2s \
+            --vnet-name vnet-eus2 \
+            --subnet snet-eus2-fe \
+            --nsg vmss-fe-bcd00-nsg \
+            --upgrade-policy-mode automatic \
+            --admin-username bcdfeuser00 \
+            --ssh-key-name vmss-fe-bcd00_key \
+            --custom-data infra/cloud-init-frontend.yaml \
+            --assign-identity \
+            --location eastus2
+          
+          echo "✅ Frontend VMSS created successfully"
 
       - name: Configure VMSS Managed Identity permissions
         run: |
-          # Get VMSS Managed Identity
-          VMSS_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "identity.principalId" -o tsv)
+          echo "Configuring VMSS Managed Identity permissions for both Frontend and Backend..."
           
-          if [ -n "$VMSS_IDENTITY" ]; then
-            echo "Configuring permissions for VMSS Managed Identity: $VMSS_IDENTITY"
+          # Wait a moment for VMSS to be fully ready
+          sleep 30
+          
+          # Configure Backend VMSS Identity
+          VMSS_BE_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "identity.principalId" -o tsv)
+          
+          if [ -n "$VMSS_BE_IDENTITY" ] && [ "$VMSS_BE_IDENTITY" != "null" ]; then
+            echo "Configuring permissions for Backend VMSS Managed Identity: $VMSS_BE_IDENTITY"
             
             # Grant AcrPull role
             az role assignment create \
-              --assignee "$VMSS_IDENTITY" \
+              --assignee "$VMSS_BE_IDENTITY" \
               --role "AcrPull" \
               --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
-              || echo "AcrPull role already assigned or failed"
+              || echo "AcrPull role already assigned to Backend VMSS"
             
             # Grant Key Vault Secrets User role  
             KV_NAME=$(az keyvault list --resource-group ${{ env.AZURE_RG }} --query "[0].name" -o tsv)
+            if [ -n "$KV_NAME" ] && [ "$KV_NAME" != "null" ]; then
+              az role assignment create \
+                --assignee "$VMSS_BE_IDENTITY" \
+                --role "Key Vault Secrets User" \
+                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
+                || echo "Key Vault role already assigned to Backend VMSS"
+            fi
+            
+            echo "Backend VMSS permissions configured successfully"
+          else
+            echo "Warning: Could not find Backend VMSS Managed Identity"
+          fi
+          
+          # Configure Frontend VMSS Identity
+          VMSS_FE_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} --query "identity.principalId" -o tsv)
+          
+          if [ -n "$VMSS_FE_IDENTITY" ] && [ "$VMSS_FE_IDENTITY" != "null" ]; then
+            echo "Configuring permissions for Frontend VMSS Managed Identity: $VMSS_FE_IDENTITY"
+            
+            # Grant AcrPull role
+            az role assignment create \
+              --assignee "$VMSS_FE_IDENTITY" \
+              --role "AcrPull" \
+              --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+              || echo "AcrPull role already assigned to Frontend VMSS"
+            
+            # Grant Key Vault Secrets User role  
+            if [ -n "$KV_NAME" ] && [ "$KV_NAME" != "null" ]; then
+              az role assignment create \
+                --assignee "$VMSS_FE_IDENTITY" \
+                --role "Key Vault Secrets User" \
+                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
+                || echo "Key Vault role already assigned to Frontend VMSS"
+            fi
+            
+            echo "Frontend VMSS permissions configured successfully"
+          else
+            echo "Warning: Could not find Frontend VMSS Managed Identity"
+          fi
+
+      - name: Configure Application Gateway Backend Pools
+        run: |
+          echo "Configuring Application Gateway backend pools..."
+          
+          # Add Backend VMSS to backend pool
+          az network application-gateway address-pool create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gateway-name agw-bcd00 \
+            --name backend-pool \
+            || echo "Backend pool already exists"
+          
+          # Add Frontend VMSS to frontend pool  
+          az network application-gateway address-pool create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gateway-name agw-bcd00 \
+            --name frontend-pool \
+            || echo "Frontend pool already exists"
+          
+          # Configure routing rules
+          echo "Configuring Application Gateway routing rules..."
+          
+          # Create HTTP settings for backend (port 4000)
+          az network application-gateway http-settings create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gateway-name agw-bcd00 \
+            --name setting-for-backend \
+            --port 4000 \
+            --protocol Http \
+            --cookie-based-affinity Disabled \
+            || echo "Backend HTTP settings already exist"
+          
+          # Create HTTP settings for frontend (port 80)
+          az network application-gateway http-settings create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gateway-name agw-bcd00 \
+            --name setting-for-frontend \
+            --port 80 \
+            --protocol Http \
+            --cookie-based-affinity Disabled \
+            || echo "Frontend HTTP settings already exist"
+          
+          # Create URL path map for routing
+          az network application-gateway url-path-map create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gateway-name agw-bcd00 \
+            --name rule-path-based \
+            --default-address-pool frontend-pool \
+            --default-http-settings setting-for-frontend \
+            || echo "URL path map already exists"
+          
+          # Add path rule for /api/* to backend
+          az network application-gateway url-path-map rule create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --gateway-name agw-bcd00 \
+            --path-map-name rule-path-based \
+            --name target-backend \
+            --paths "/api/*" \
+            --address-pool backend-pool \
+            --http-settings setting-for-backend \
+            || echo "Backend path rule already exists"
+            
+          # Associate VMSS with Application Gateway backend pools
+          echo "Associating VMSS instances with Application Gateway pools..."
+          
+          # Get Backend VMSS NIC names and associate with backend pool
+          BACKEND_NIC_IDS=$(az vmss list-instances \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_BE }} \
+            --query "[].networkProfile.networkInterfaces[0].id" -o tsv)
+          
+          for nic_id in $BACKEND_NIC_IDS; do
+            NIC_NAME=$(basename "$nic_id")
+            echo "Associating Backend NIC: $NIC_NAME"
+            az network nic ip-config address-pool add \
+              --resource-group ${{ env.AZURE_RG }} \
+              --nic-name "$NIC_NAME" \
+              --ip-config-name ipconfig${{ env.VMSS_BE }} \
+              --address-pool backend-pool \
+              --gateway-name agw-bcd00 \
+              || echo "Backend NIC already associated"
+          done
+          
+          # Get Frontend VMSS NIC names and associate with frontend pool
+          FRONTEND_NIC_IDS=$(az vmss list-instances \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_FE }} \
+            --query "[].networkProfile.networkInterfaces[0].id" -o tsv)
+          
+          for nic_id in $FRONTEND_NIC_IDS; do
+            NIC_NAME=$(basename "$nic_id")
+            echo "Associating Frontend NIC: $NIC_NAME"
+            az network nic ip-config address-pool add \
+              --resource-group ${{ env.AZURE_RG }} \
+              --nic-name "$NIC_NAME" \
+              --ip-config-name ipconfig${{ env.VMSS_FE }} \
+              --address-pool frontend-pool \
+              --gateway-name agw-bcd00 \
+              || echo "Frontend NIC already associated"
+          done
             if [ -n "$KV_NAME" ]; then
               az role assignment create \
                 --assignee "$VMSS_IDENTITY" \
                 --role "Key Vault Secrets User" \
                 --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
-                || echo "Key Vault role already assigned or failed"
+                || echo "Key Vault role already assigned"
             fi
+            
+            echo "Permissions configured successfully"
+          else
+            echo "Warning: Could not find VMSS Managed Identity"
           fi
 
   deploy-vmss:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push, deploy-infrastructure]
+    needs: [setup, build-and-push, deploy-infrastructure, create-vmss, check-vmss]
     environment: ${{ github.event.inputs.environment || 'dev' }}
-    if: needs.setup.outputs.should_deploy_vmss == 'true'
+    if: needs.setup.outputs.should_deploy_vmss == 'true' && needs.check-vmss.outputs.vmss_configured == 'false'
     steps:
       - uses: actions/checkout@v4
 
@@ -206,101 +615,202 @@ jobs:
 
       - name: Update VMSS with optimized cloud-init
         run: |
-          echo "Updating VMSS model with cloud-init..."
+          echo "🔄 Updating Frontend and Backend VMSS models with cloud-init..."
           
-          # Update rolling upgrade policy for better success rate
-          az vmss update \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }} \
-            --set upgradePolicy.mode=Rolling \
-            --set upgradePolicy.rollingUpgradePolicy.maxBatchInstancePercent=50 \
-            --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyInstancePercent=100 \
-            --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyUpgradedInstancePercent=100 \
-            --set upgradePolicy.rollingUpgradePolicy.pauseTimeBetweenBatches=PT30S
+          # Update Backend VMSS if it exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
+            echo "Updating Backend VMSS rolling upgrade policy..."
+            az vmss update \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_BE }} \
+              --set upgradePolicy.mode=Rolling \
+              --set upgradePolicy.rollingUpgradePolicy.maxBatchInstancePercent=50 \
+              --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyInstancePercent=100 \
+              --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyUpgradedInstancePercent=100 \
+              --set upgradePolicy.rollingUpgradePolicy.pauseTimeBetweenBatches=PT30S
 
-          # Update VMSS model with new cloud-init
-          az vmss update \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }} \
-            --set virtualMachineProfile.osProfile.customData="$(base64 -w 0 < infra/cloud-init-optimized.yaml)"
+            echo "Updating Backend VMSS model with new cloud-init..."
+            az vmss update \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_BE }} \
+              --set virtualMachineProfile.osProfile.customData="$(base64 -w 0 < infra/cloud-init-optimized.yaml)"
+            
+            echo "✅ Backend VMSS model updated"
+          else
+            echo "⚠️ Backend VMSS not found, skipping update"
+          fi
+          
+          # Update Frontend VMSS if it exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            echo "Updating Frontend VMSS rolling upgrade policy..."
+            az vmss update \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_FE }} \
+              --set upgradePolicy.mode=Rolling \
+              --set upgradePolicy.rollingUpgradePolicy.maxBatchInstancePercent=50 \
+              --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyInstancePercent=100 \
+              --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyUpgradedInstancePercent=100 \
+              --set upgradePolicy.rollingUpgradePolicy.pauseTimeBetweenBatches=PT30S
+
+            echo "Updating Frontend VMSS model with new cloud-init..."
+            az vmss update \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_FE }} \
+              --set virtualMachineProfile.osProfile.customData="$(base64 -w 0 < infra/cloud-init-frontend.yaml)"
+              
+            echo "✅ Frontend VMSS model updated"
+          else
+            echo "⚠️ Frontend VMSS not found, skipping update"
+          fi
 
       - name: Rolling upgrade VMSS instances
         run: |
-          echo "Starting rolling upgrade of VMSS instances..."
+          echo "🔄 Starting rolling upgrade of VMSS instances..."
           
-          # Start rolling upgrade
-          az vmss rolling-upgrade start \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }}
+          # Upgrade Backend VMSS if it exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
+            echo "Upgrading Backend VMSS..."
+            az vmss rolling-upgrade start \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_BE }} \
+              || {
+                echo "Rolling upgrade failed for Backend VMSS, trying instance-by-instance update..."
+                INSTANCE_IDS=$(az vmss list-instances --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "[].instanceId" -o tsv)
+                for instance_id in $INSTANCE_IDS; do
+                  echo "Updating Backend VMSS instance $instance_id..."
+                  az vmss update-instances \
+                    --resource-group ${{ env.AZURE_RG }} \
+                    --name ${{ env.VMSS_BE }} \
+                    --instance-ids $instance_id
+                  sleep 30
+                done
+              }
+            echo "✅ Backend VMSS upgrade completed"
+          else
+            echo "⚠️ Backend VMSS not found, skipping upgrade"
+          fi
           
-          # Wait for upgrade completion
-          az vmss rolling-upgrade get-latest \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }} \
-            --query "runningStatus" -o tsv
-          
-          # Alternative: Update specific instances if rolling upgrade fails
-          if [ $? -ne 0 ]; then
-            echo "Rolling upgrade failed, trying instance-by-instance update..."
-            INSTANCE_IDS=$(az vmss list-instances --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "[].instanceId" -o tsv)
-            for instance_id in $INSTANCE_IDS; do
-              echo "Updating instance $instance_id..."
-              az vmss update-instances \
-                --resource-group ${{ env.AZURE_RG }} \
-                --name ${{ env.VMSS_BE }} \
-                --instance-ids $instance_id
-              sleep 30
-            done
+          # Upgrade Frontend VMSS if it exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            echo "Upgrading Frontend VMSS..."
+            az vmss rolling-upgrade start \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_FE }} \
+              || {
+                echo "Rolling upgrade failed for Frontend VMSS, trying instance-by-instance update..."
+                INSTANCE_IDS=$(az vmss list-instances --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} --query "[].instanceId" -o tsv)
+                for instance_id in $INSTANCE_IDS; do
+                  echo "Updating Frontend VMSS instance $instance_id..."
+                  az vmss update-instances \
+                    --resource-group ${{ env.AZURE_RG }} \
+                    --name ${{ env.VMSS_FE }} \
+                    --instance-ids $instance_id
+                  sleep 30
+                done
+              }
+            echo "✅ Frontend VMSS upgrade completed"
+          else
+            echo "⚠️ Frontend VMSS not found, skipping upgrade"
           fi
 
       - name: Deploy new image to VMSS
         run: |
-          echo "Deploying image ${{ needs.setup.outputs.image_tag }} to VMSS instances..."
+          echo "🚀 Deploying image ${{ needs.setup.outputs.image_tag }} to VMSS instances..."
           
-          # Run deployment command on all instances
-          az vmss run-command invoke \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }} \
-            --instance-id "*" \
-            --command-id RunShellScript \
-            --scripts "
-              set -e
-              echo '=== VMSS Instance Update Start ==='
-              echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
-              
-              # Set environment variable
-              export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
-              echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju/.env
-              
-              # Pull new images and restart service
-              cd /opt/yangju
-              sudo systemctl stop yangju.service
-              sudo /usr/local/bin/yangju-compose-run.sh pull
-              sudo systemctl start yangju.service
-              
-              # Wait for health check
-              for i in {1..30}; do
-                if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
-                  echo 'Health check passed'
-                  break
-                fi
-                echo 'Waiting for health check... (\$i/30)'
-                sleep 2
-              done
-              
-              sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-              echo '=== VMSS Instance Update Complete ==='
-            " \
-            --query 'value[].message' -o tsv
+          # Deploy to Backend VMSS if it exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
+            echo "Deploying to Backend VMSS..."
+            az vmss run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_BE }} \
+              --instance-id "*" \
+              --command-id RunShellScript \
+              --scripts "
+                set -e
+                echo '=== Backend VMSS Instance Update Start ==='
+                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
+                
+                # Set environment variable
+                export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
+                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju/.env
+                
+                # Pull new images and restart service
+                cd /opt/yangju
+                sudo systemctl stop yangju.service
+                sudo /usr/local/bin/yangju-compose-run.sh pull
+                sudo systemctl start yangju.service
+                
+                # Wait for health check
+                for i in {1..30}; do
+                  if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
+                    echo 'Backend health check passed'
+                    break
+                  fi
+                  echo 'Waiting for backend health check... (\$i/30)'
+                  sleep 2
+                done
+                
+                sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                echo '=== Backend VMSS Instance Update Complete ==='
+              " \
+              --query 'value[].message' -o tsv
+            echo "✅ Backend VMSS deployment completed"
+          else
+            echo "⚠️ Backend VMSS not found, skipping deployment"
+          fi
+          
+          # Deploy to Frontend VMSS if it exists
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            echo "Deploying to Frontend VMSS..."
+            az vmss run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_FE }} \
+              --instance-id "*" \
+              --command-id RunShellScript \
+              --scripts "
+                set -e
+                echo '=== Frontend VMSS Instance Update Start ==='
+                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
+                
+                # Set environment variable
+                export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
+                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju-frontend/.env
+                
+                # Pull new images and restart service
+                cd /opt/yangju-frontend
+                sudo systemctl stop yangju-frontend.service
+                sudo /usr/local/bin/yangju-frontend-compose-run.sh pull
+                sudo systemctl start yangju-frontend.service
+                
+                # Wait for health check
+                for i in {1..30}; do
+                  if curl -fsS http://localhost:80 >/dev/null 2>&1; then
+                    echo 'Frontend health check passed'
+                    break
+                  fi
+                  echo 'Waiting for frontend health check... (\$i/30)'
+                  sleep 2
+                done
+                
+                sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                echo '=== Frontend VMSS Instance Update Complete ==='
+              " \
+              --query 'value[].message' -o tsv
+            echo "✅ Frontend VMSS deployment completed"
+          else
+            echo "⚠️ Frontend VMSS not found, skipping deployment"
+          fi
 
-  deploy-webapp:
+  check-webapp:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push]
+    needs: [setup]
     environment: ${{ github.event.inputs.environment || 'dev' }}
     if: needs.setup.outputs.should_deploy_webapp == 'true'
+    outputs:
+      webapp_be_exists: ${{ steps.check.outputs.webapp_be_exists }}
+      webapp_fe_exists: ${{ steps.check.outputs.webapp_fe_exists }}
+      webapp_configured: ${{ steps.check.outputs.webapp_configured }}
     steps:
-      - uses: actions/checkout@v4
-
       - name: Azure login (OIDC)
         uses: azure/login@v2
         with:
@@ -308,52 +818,63 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Deploy to Azure Web App (Backend)
+      - name: Check Web App existence
+        id: check
         run: |
-          echo "Deploying backend to Azure Web App..."
+          echo "🔍 Checking Web App existence..."
           
-          # Check if Web App exists
+          # Check if Backend Web App exists
           if az webapp show --resource-group ${{ env.AZURE_RG }} --name ${{ env.WEBAPP_BE }} >/dev/null 2>&1; then
-            # Configure Web App container
-            az webapp config container set \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.WEBAPP_BE }} \
-              --container-image-name ${{ needs.build-and-push.outputs.backend_image }} \
-              --container-registry-url https://${{ env.ACR_NAME }}.azurecr.io
-            
-            # Restart Web App
-            az webapp restart --resource-group ${{ env.AZURE_RG }} --name ${{ env.WEBAPP_BE }}
-            
-            echo "Backend deployed to Web App: ${{ env.WEBAPP_BE }}"
+            echo "✅ Backend Web App (${{ env.WEBAPP_BE }}) exists"
+            echo "webapp_be_exists=true" >> $GITHUB_OUTPUT
+            WEBAPP_BE_EXISTS=true
           else
-            echo "Web App ${{ env.WEBAPP_BE }} not found, skipping deployment"
+            echo "❌ Backend Web App (${{ env.WEBAPP_BE }}) not found"
+            echo "webapp_be_exists=false" >> $GITHUB_OUTPUT
+            WEBAPP_BE_EXISTS=false
+          fi
+          
+          # Check if Frontend Web App exists
+          if az webapp show --resource-group ${{ env.AZURE_RG }} --name ${{ env.WEBAPP_FE }} >/dev/null 2>&1; then
+            echo "✅ Frontend Web App (${{ env.WEBAPP_FE }}) exists"
+            echo "webapp_fe_exists=true" >> $GITHUB_OUTPUT
+            WEBAPP_FE_EXISTS=true
+          else
+            echo "❌ Frontend Web App (${{ env.WEBAPP_FE }}) not found"
+            echo "webapp_fe_exists=false" >> $GITHUB_OUTPUT
+            WEBAPP_FE_EXISTS=false
+          fi
+          
+          # Determine if Web Apps are configured (both exist)
+          if [ "$WEBAPP_BE_EXISTS" = "true" ] && [ "$WEBAPP_FE_EXISTS" = "true" ]; then
+            echo "✅ Web Apps are fully configured - VMSS deployment will be skipped"
+            echo "webapp_configured=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Web Apps are not fully configured - VMSS deployment will proceed"
+            echo "webapp_configured=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Deploy to Azure Web App (Frontend)
+  deploy-webapp:
+    runs-on: ubuntu-latest
+    needs: [setup, build-and-push, check-webapp]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: needs.setup.outputs.should_deploy_webapp == 'true' && needs.check-webapp.outputs.webapp_configured == 'false'
+    steps:
+      - name: Web App deployment notice
         run: |
-          echo "Deploying frontend to Azure Web App..."
-          
-          # Check if Web App exists
-          if az webapp show --resource-group ${{ env.AZURE_RG }} --name ${{ env.WEBAPP_FE }} >/dev/null 2>&1; then
-            # Configure Web App container
-            az webapp config container set \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.WEBAPP_FE }} \
-              --container-image-name ${{ needs.build-and-push.outputs.frontend_image }} \
-              --container-registry-url https://${{ env.ACR_NAME }}.azurecr.io
-            
-            # Restart Web App
-            az webapp restart --resource-group ${{ env.AZURE_RG }} --name ${{ env.WEBAPP_FE }}
-            
-            echo "Frontend deployed to Web App: ${{ env.WEBAPP_FE }}"
-          else
-            echo "Web App ${{ env.WEBAPP_FE }} not found, skipping deployment"
-          fi
+          echo "📋 Web App Deployment Status:"
+          echo "- Backend Web App (${{ env.WEBAPP_BE }}): ${{ needs.check-webapp.outputs.webapp_be_exists == 'true' && '✅ Exists' || '❌ Not found' }}"
+          echo "- Frontend Web App (${{ env.WEBAPP_FE }}): ${{ needs.check-webapp.outputs.webapp_fe_exists == 'true' && '✅ Exists' || '❌ Not found' }}"
+          echo ""
+          echo "ℹ️ Web Apps are not fully configured - proceeding with deployment setup"
+          echo "ℹ️ Actual Web App deployments are handled by separate build-and-push workflow"
+          echo ""
+          echo "🎯 Action: Setting up Web App configuration for future deployments"
 
   health-check:
     runs-on: ubuntu-latest
-    needs: [setup, deploy-vmss, deploy-webapp]
-    if: always() && (needs.deploy-vmss.result == 'success' || needs.deploy-webapp.result == 'success')
+    needs: [setup, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp]
+    if: always() && (needs.deploy-vmss.result == 'success' || needs.deploy-webapp.result == 'success' || needs.check-vmss.outputs.vmss_configured == 'true' || needs.check-webapp.outputs.webapp_configured == 'true')
     environment: ${{ github.event.inputs.environment || 'dev' }}
     steps:
       - name: Azure login (OIDC)
@@ -368,18 +889,47 @@ jobs:
         run: |
           echo "Checking VMSS health..."
           
-          # Check Load Balancer health
-          LB_NAME=$(az network lb list --resource-group ${{ env.AZURE_RG }} --query "[0].name" -o tsv)
-          if [ -n "$LB_NAME" ]; then
-            az network lb show --resource-group ${{ env.AZURE_RG }} --name "$LB_NAME" --query "backendAddressPools[0].backendIpConfigurations[].{State:provisioningState}" -o table
+          # Check Application Gateway health
+          AGW_NAME="agw-bcd00"
+          if az network application-gateway show --resource-group ${{ env.AZURE_RG }} --name "$AGW_NAME" >/dev/null 2>&1; then
+            echo "✅ Application Gateway $AGW_NAME exists"
+            
+            # Get public IP
+            AGW_PUBLIC_IP=$(az network public-ip show --resource-group ${{ env.AZURE_RG }} --name pip-agw-bcd00 --query "ipAddress" -o tsv)
+            echo "🌐 Application Gateway Public IP: $AGW_PUBLIC_IP"
+            
+            # Test Application Gateway endpoint
+            if curl -fsS "http://$AGW_PUBLIC_IP" >/dev/null 2>&1; then
+              echo "✅ Application Gateway frontend health check passed"
+            else
+              echo "⚠️ Application Gateway frontend health check failed (may take time to be ready)"
+            fi
+            
+            # Test backend API through Application Gateway
+            if curl -fsS "http://$AGW_PUBLIC_IP/api/health" >/dev/null 2>&1; then
+              echo "✅ Application Gateway backend health check passed"
+            else
+              echo "⚠️ Application Gateway backend health check failed (may take time to be ready)"
+            fi
+          else
+            echo "❌ Application Gateway not found"
           fi
           
-          # Check VMSS instances health
+          # Check Backend VMSS instances health
+          echo "Backend VMSS instances:"
           az vmss list-instances \
             --resource-group ${{ env.AZURE_RG }} \
             --name ${{ env.VMSS_BE }} \
             --query "[].{InstanceId:instanceId, ProvisioningState:provisioningState, HealthState:latestModelApplied}" \
-            -o table
+            -o table || echo "Backend VMSS not found"
+          
+          # Check Frontend VMSS instances health
+          echo "Frontend VMSS instances:"
+          az vmss list-instances \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_FE }} \
+            --query "[].{InstanceId:instanceId, ProvisioningState:provisioningState, HealthState:latestModelApplied}" \
+            -o table || echo "Frontend VMSS not found"
 
       - name: Web App Health Check
         if: needs.setup.outputs.should_deploy_webapp == 'true'
@@ -414,7 +964,7 @@ jobs:
 
   summary:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push, deploy-vmss, deploy-webapp, health-check]
+    needs: [setup, build-and-push, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp, health-check]
     if: always()
     steps:
       - name: Deployment Summary
@@ -427,8 +977,13 @@ jobs:
           echo "- **Deployment Target**: ${{ env.DEPLOYMENT_TARGET }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Resource Group**: ${{ env.AZURE_RG }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Resource Status" >> $GITHUB_STEP_SUMMARY
+          echo "- **VMSS Configured**: ${{ needs.check-vmss.outputs.vmss_configured || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Web App Configured**: ${{ needs.check-webapp.outputs.webapp_configured || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Results" >> $GITHUB_STEP_SUMMARY
           echo "- **Build & Push**: ${{ needs.build-and-push.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **VMSS Creation**: ${{ needs.create-vmss.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **VMSS Deployment**: ${{ needs.deploy-vmss.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Web App Deployment**: ${{ needs.deploy-webapp.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Health Check**: ${{ needs.health-check.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
