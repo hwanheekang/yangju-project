@@ -18,11 +18,7 @@ function App() {
     '식비', '교통비', '고정지출', '통신비', '교육비',
     '여가활동', '의료비', '의류비', '경조사비', '기타'
   ]);
-<<<<<<< HEAD
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-=======
-   const [sidebarOpen, setSidebarOpen] = useState(() => {
->>>>>>> 9af36495966bd94b5754ea79f0fa1ef50f845b21
     // 기본값: 닫힘. 사용자 선택을 localStorage에서 복원
     if (typeof window === 'undefined') return false;
     const stored = localStorage.getItem('sidebarOpen');

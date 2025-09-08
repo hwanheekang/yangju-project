@@ -23,7 +23,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write   # OIDC 필요
+  id-token: write # OIDC 필요
 
 concurrency:
   group: deploy-${{ github.ref }}
