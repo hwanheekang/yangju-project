@@ -432,7 +432,7 @@ export default function Home({ fetchReceipts, receipts }) {
       <Modal isOpen={editModalOpen} onClose={() => { setEditId(null); setEditModalOpen(false); }} title="영수증 수정">
         <div style={{ marginTop: '8px', background: '#eef', padding: '10px', borderRadius: '6px' }}>
           <div><label>상호명: <input type="text" value={editFields.store_name} onChange={e => setEditFields(f => ({ ...f, store_name: e.target.value }))} className="input" style={styles.input} /></label></div>
-          <div><label>거래일자: <input type="date" value={editFields.transaction_date} onChange={e => setEditFields(f => ({ ...f, transaction_date: e.target.value }))} className="input" style={styles.input} /></label></div>
+          <div><label>거래일자: <input type="date" value={editFields.transaction_date} max={new Date().toISOString().split('T')[0]} onChange={e => setEditFields(f => ({ ...f, transaction_date: e.target.value }))} className="input" style={styles.input} /></label></div>
           <div><label>금액: <input type="number" value={editFields.total_amount} onChange={e => setEditFields(f => ({ ...f, total_amount: e.target.value }))} className="input" style={styles.input} /></label></div>
           <div><label>카테고리:
             <select value={editFields.category} onChange={e => setEditFields(f => ({ ...f, category: e.target.value }))} className="categorySelect" style={styles.categorySelect}>
