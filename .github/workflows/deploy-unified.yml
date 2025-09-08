@@ -114,7 +114,7 @@ jobs:
         run: az acr login --name ${{ env.ACR_NAME }}
 
       - name: Build and push backend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile.backend
@@ -126,9 +126,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and push frontend
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
-          context: .
+          context: Front-End
           file: ./Dockerfile.frontend
           push: true
           tags: |
