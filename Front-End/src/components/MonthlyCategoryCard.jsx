@@ -33,7 +33,7 @@ export default function MonthlyCategoryCard({ year, month, renderAsCard = true }
         {loading && <div className="text-muted">불러오는 중…</div>}
         {error && <div style={{ color: 'var(--danger)' }}>{error}</div>}
         {!loading && !error && (
-      <div style={{ overflowY: 'auto', overflowX: 'hidden', maxHeight: 320, borderTop: '1px solid var(--border)' }}>
+      <div style={{ overflowY: 'auto', overflowX: 'auto', maxHeight: 320, borderTop: '1px solid var(--border)' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead>
                 <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
