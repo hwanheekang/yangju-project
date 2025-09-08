@@ -79,20 +79,51 @@ jobs:
 
       - name: Configure VMSS Managed Identity (if needed)
         run: |
-          # Ensure VMSS has proper permissions
+          # Check if VMSS exists and get its identity status
+          VMSS_EXISTS=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_NAME }} --query "name" -o tsv 2>/dev/null || echo "")
+          
+          if [ -z "$VMSS_EXISTS" ]; then
+            echo "Error: VMSS ${{ env.VMSS_NAME }} not found in resource group ${{ env.AZURE_RG }}"
+            exit 1
+          fi
+          
+          # Enable system-assigned managed identity if not already enabled
+          echo "Ensuring VMSS has system-assigned managed identity..."
+          az vmss identity assign \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_NAME }} || true
+          
+          # Get the managed identity principal ID
           VMSS_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_NAME }} --query "identity.principalId" -o tsv)
           
           if [ -n "$VMSS_IDENTITY" ] && [ "$VMSS_IDENTITY" != "null" ]; then
             echo "VMSS Managed Identity: $VMSS_IDENTITY"
             
-            # Grant AcrPull role
+            # Grant AcrPull role to the ACR
+            echo "Assigning AcrPull role to VMSS managed identity..."
             az role assignment create \
               --assignee "$VMSS_IDENTITY" \
               --role "AcrPull" \
               --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
-              2>/dev/null || echo "AcrPull role already assigned"
+              2>/dev/null || echo "AcrPull role already assigned or assignment failed"
+            
+            # Also grant ACR token exchange role for better compatibility
+            az role assignment create \
+              --assignee "$VMSS_IDENTITY" \
+              --role "AcrPush" \
+              --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+              2>/dev/null || echo "AcrPush role assignment skipped"
+              
+            # Verify role assignments
+            echo "Verifying role assignments..."
+            az role assignment list \
+              --assignee "$VMSS_IDENTITY" \
+              --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+              --query "[].{Role:roleDefinitionName, Scope:scope}" \
+              -o table
           else
-            echo "Warning: VMSS Managed Identity not found"
+            echo "Error: Failed to get VMSS Managed Identity"
+            exit 1
           fi
 
       - name: Update VMSS model (if cloud-init changed)
@@ -178,17 +209,61 @@ jobs:
                 echo 'Warning: docker-compose.yml not found, may need cloud-init update'
               fi
               
-              # Health check
-              echo 'Performing health check...'
+              # Comprehensive health and connectivity check
+              echo 'Performing comprehensive health check...'
+              
+              # Check Managed Identity
+              echo '=== Managed Identity Check ==='
+              MI_TOKEN=$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' | jq -r .access_token 2>/dev/null || echo 'FAILED')
+              if [ "$MI_TOKEN" != "FAILED" ] && [ -n "$MI_TOKEN" ]; then
+                echo '✅ Managed Identity token acquired'
+              else
+                echo '❌ Managed Identity token acquisition failed'
+              fi
+              
+              # Check ACR connectivity
+              echo '=== ACR Connectivity Check ==='
+              if nslookup ${{ env.ACR_NAME }}.azurecr.io >/dev/null 2>&1; then
+                echo '✅ ACR DNS resolution successful'
+              else
+                echo '❌ ACR DNS resolution failed'
+              fi
+              
+              if curl -sSf https://${{ env.ACR_NAME }}.azurecr.io/v2/ >/dev/null 2>&1; then
+                echo '✅ ACR HTTPS connectivity successful'
+              else
+                echo '❌ ACR HTTPS connectivity failed'
+              fi
+              
+              # Check Docker service
+              echo '=== Docker Service Check ==='
+              if systemctl is-active docker >/dev/null 2>&1; then
+                echo '✅ Docker service is active'
+                sudo docker info || echo '❌ Docker info failed'
+              else
+                echo '❌ Docker service is not active'
+                sudo systemctl status docker || true
+              fi
+              
+              # Application health check with timeout
+              echo '=== Application Health Check ==='
               for i in {1..30}; do
                 if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
                   echo '✅ Health check passed after \${i} attempts'
+                  curl -s http://localhost:4000/health | jq . || echo 'Health endpoint returned non-JSON'
                   break
                 elif curl -fsS http://localhost:8080 >/dev/null 2>&1; then
                   echo '✅ Health check passed (port 8080) after \${i} attempts'
                   break
                 else
                   echo 'Health check attempt \${i}/30...'
+                  if [ \${i} -eq 30 ]; then
+                    echo '❌ Health check failed after 30 attempts'
+                    echo 'Container logs:'
+                    sudo docker logs yangju-backend --tail 50 || echo 'No container logs available'
+                    echo 'Service status:'
+                    sudo systemctl status yangju.service || true
+                  fi
                   sleep 3
                 fi
               done

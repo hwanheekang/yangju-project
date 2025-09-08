@@ -47,6 +47,7 @@ env:
   AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
   AZURE_RG: rg-bcd00
   ACR_NAME: acrbcd00
+  KV_NAME: kv-bcd00
   VMSS_BE: vmss-be-bcd00
   VMSS_FE: vmss-fe-bcd00
   WEBAPP_BE: webapp-be-bcd00
@@ -253,9 +254,9 @@ jobs:
           
           echo "✅ Required networking resources verified for VMSS creation"
 
-      - name: Create NSG with required rules
+      - name: Create NSG with required rules (Enhanced)
         run: |
-          echo "Creating NSGs for both Frontend and Backend VMSS..."
+          echo "Creating NSGs for both Frontend and Backend VMSS with enhanced outbound rules..."
           
           # Create Backend NSG (skip if exists)
           if ! az network nsg show --resource-group ${{ env.AZURE_RG }} --name vmss-be-bcd00-nsg >/dev/null 2>&1; then
@@ -268,7 +269,7 @@ jobs:
             echo "Backend NSG already exists"
           fi
           
-          # Add rule for port 4000 (backend application)
+          # Add inbound rule for port 4000 (backend application)
           az network nsg rule create \
             --resource-group ${{ env.AZURE_RG }} \
             --nsg-name vmss-be-bcd00-nsg \
@@ -279,7 +280,49 @@ jobs:
             --access "Allow" \
             --protocol "Tcp" \
             --direction "Inbound" \
-            || echo "Backend NSG rule already exists"
+            || echo "Backend inbound NSG rule already exists"
+          
+          # Add critical outbound rules for ACR and Key Vault access
+          az network nsg rule create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --nsg-name vmss-be-bcd00-nsg \
+            --name "Allow-HTTPS-Outbound" \
+            --priority 100 \
+            --source-address-prefixes "*" \
+            --destination-address-prefixes "Internet" \
+            --destination-port-ranges "443" \
+            --access "Allow" \
+            --protocol "Tcp" \
+            --direction "Outbound" \
+            || echo "HTTPS outbound rule already exists"
+          
+          # Add rule for Azure services (ACR, Key Vault, etc.)
+          az network nsg rule create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --nsg-name vmss-be-bcd00-nsg \
+            --name "Allow-Azure-Services" \
+            --priority 110 \
+            --source-address-prefixes "*" \
+            --destination-address-prefixes "AzureContainerRegistry" \
+            --destination-port-ranges "443" \
+            --access "Allow" \
+            --protocol "Tcp" \
+            --direction "Outbound" \
+            || echo "Azure services outbound rule already exists"
+          
+          # Add rule for Key Vault access
+          az network nsg rule create \
+            --resource-group ${{ env.AZURE_RG }} \
+            --nsg-name vmss-be-bcd00-nsg \
+            --name "Allow-KeyVault-Access" \
+            --priority 120 \
+            --source-address-prefixes "*" \
+            --destination-address-prefixes "AzureKeyVault" \
+            --destination-port-ranges "443" \
+            --access "Allow" \
+            --protocol "Tcp" \
+            --direction "Outbound" \
+            || echo "Key Vault outbound rule already exists"
           
           # Create Frontend NSG (skip if exists)
           if ! az network nsg show --resource-group ${{ env.AZURE_RG }} --name vmss-fe-bcd00-nsg >/dev/null 2>&1; then
@@ -397,15 +440,18 @@ jobs:
             echo "AGW_EXISTS=false" >> $GITHUB_ENV
           fi
 
-      - name: Create VMSS instances
+      - name: Create VMSS instances (Enhanced with Auto Managed Identity)
         run: |
-          echo "🏗️ Creating Frontend and Backend VMSS..."
+          echo "🏗️ Creating Frontend and Backend VMSS with automatic managed identity setup..."
           
           # Create User-assigned Managed Identities first
           echo "Creating User-assigned Managed Identities..."
           if ! az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 >/dev/null 2>&1; then
             echo "Creating Backend Managed Identity..."
             az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --location eastus2
+            
+            # Wait for identity to be ready
+            sleep 15
           else
             echo "Backend Managed Identity already exists"
           fi
@@ -413,13 +459,19 @@ jobs:
           if ! az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 >/dev/null 2>&1; then
             echo "Creating Frontend Managed Identity..."
             az identity create --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --location eastus2
+            
+            # Wait for identity to be ready
+            sleep 15
           else
             echo "Frontend Managed Identity already exists"
           fi
           
-          # Get identity resource IDs
+          # Get identity resource IDs for both user-assigned and system-assigned
           VMSS_BE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --query "id" -o tsv)
           VMSS_FE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --query "id" -o tsv)
+          
+          echo "Backend Identity ID: $VMSS_BE_IDENTITY_ID"
+          echo "Frontend Identity ID: $VMSS_FE_IDENTITY_ID"
           
           # Create Backend VMSS only if it doesn't exist
           echo "🔍 Checking Backend VMSS existence..."
@@ -436,7 +488,7 @@ jobs:
             if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
               echo "✅ Backend VMSS appeared during wait, skipping creation"
             else
-              echo "Creating Backend VMSS..."
+              echo "Creating Backend VMSS with both user-assigned and system-assigned identities..."
               az vmss create \
                 --resource-group ${{ env.AZURE_RG }} \
                 --name ${{ env.VMSS_BE }} \
@@ -456,7 +508,15 @@ jobs:
                 --backend-pool-name backend-lb-pool \
                 --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/probe-for-port-4000" \
                 --location eastus2
-              echo "✅ Backend VMSS created successfully"
+              
+              # Also enable system-assigned identity for additional compatibility
+              echo "Enabling system-assigned managed identity for Backend VMSS..."
+              az vmss identity assign \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name ${{ env.VMSS_BE }} \
+                --identities [system]
+              
+              echo "✅ Backend VMSS created successfully with dual identity setup"
             fi
           fi
           
@@ -475,7 +535,7 @@ jobs:
             if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
               echo "✅ Frontend VMSS appeared during wait, skipping creation"
             else
-              echo "Creating Frontend VMSS..."
+              echo "Creating Frontend VMSS with both user-assigned and system-assigned identities..."
               az vmss create \
                 --resource-group ${{ env.AZURE_RG }} \
                 --name ${{ env.VMSS_FE }} \
@@ -493,69 +553,169 @@ jobs:
                 --assign-identity "$VMSS_FE_IDENTITY_ID" \
                 --load-balancer "" \
                 --location eastus2
-              echo "✅ Frontend VMSS created successfully"
+              
+              # Also enable system-assigned identity for additional compatibility
+              echo "Enabling system-assigned managed identity for Frontend VMSS..."
+              az vmss identity assign \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name ${{ env.VMSS_FE }} \
+                --identities [system]
+              
+              echo "✅ Frontend VMSS created successfully with dual identity setup"
             fi
           fi
 
-      - name: Configure VMSS Managed Identity permissions
+      - name: Validate and Re-assign Permissions (Comprehensive)
         run: |
-          echo "Configuring VMSS Managed Identity permissions for both Frontend and Backend..."
+          echo "� Comprehensive permission validation and assignment..."
           
-          # Wait a moment for VMSS to be fully ready
+          # Wait for identities to propagate fully
           sleep 30
           
-          # Get User-assigned identity principal IDs
-          VMSS_BE_IDENTITY=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --query "principalId" -o tsv)
-          VMSS_FE_IDENTITY=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --query "principalId" -o tsv)
+          # Function to get all identity IDs for a VMSS
+          get_vmss_identities() {
+            local vmss_name="$1"
+            local rg="$2"
+            
+            # Get user-assigned identity
+            USER_IDENTITY=$(az identity show --resource-group "$rg" --name "id-$vmss_name" --query "principalId" -o tsv 2>/dev/null || echo "")
+            
+            # Get system-assigned identity
+            SYSTEM_IDENTITY=$(az vmss show --resource-group "$rg" --name "$vmss_name" --query "identity.principalId" -o tsv 2>/dev/null || echo "")
+            
+            echo "USER_IDENTITY:$USER_IDENTITY SYSTEM_IDENTITY:$SYSTEM_IDENTITY"
+          }
           
-          if [ -n "$VMSS_BE_IDENTITY" ] && [ "$VMSS_BE_IDENTITY" != "null" ]; then
-            echo "Configuring permissions for Backend VMSS Managed Identity: $VMSS_BE_IDENTITY"
+          # Function to assign ACR permissions
+          assign_acr_permissions() {
+            local identity_id="$1"
+            local identity_type="$2"
+            local vmss_name="$3"
             
-            # Grant AcrPull role
-            az role assignment create \
-              --assignee "$VMSS_BE_IDENTITY" \
-              --role "AcrPull" \
-              --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
-              || echo "AcrPull role already assigned to Backend VMSS"
-            
-            # Grant Key Vault Secrets User role  
-            KV_NAME=$(az keyvault list --resource-group ${{ env.AZURE_RG }} --query "[0].name" -o tsv)
-            if [ -n "$KV_NAME" ] && [ "$KV_NAME" != "null" ]; then
+            if [ -n "$identity_id" ] && [ "$identity_id" != "null" ]; then
+              echo "Assigning ACR permissions to $identity_type identity ($identity_id) for $vmss_name..."
+              
+              # AcrPull role
               az role assignment create \
-                --assignee "$VMSS_BE_IDENTITY" \
-                --role "Key Vault Secrets User" \
-                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
-                || echo "Key Vault role already assigned to Backend VMSS"
+                --assignee "$identity_id" \
+                --role "AcrPull" \
+                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+                || echo "AcrPull role already assigned or failed"
+              
+              # AcrImageSigner for token exchange compatibility
+              az role assignment create \
+                --assignee "$identity_id" \
+                --role "AcrImageSigner" \
+                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+                || echo "AcrImageSigner role assignment skipped"
+              
+              # Verify assignments
+              echo "Verifying ACR role assignments for $identity_type identity:"
+              az role assignment list \
+                --assignee "$identity_id" \
+                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+                --query "[].roleDefinitionName" -o tsv | sed 's/^/   - /'
+              
+              return 0
+            else
+              echo "Warning: No valid $identity_type identity found for $vmss_name"
+              return 1
             fi
+          }
+          
+          # Function to assign Key Vault permissions
+          assign_keyvault_permissions() {
+            local identity_id="$1"
+            local identity_type="$2"
+            local vmss_name="$3"
             
-            echo "Backend VMSS permissions configured successfully"
-          else
-            echo "Warning: Could not find Backend VMSS Managed Identity"
+            if [ -n "$identity_id" ] && [ "$identity_id" != "null" ]; then
+              # Find Key Vault
+              KV_NAME=$(az keyvault list --resource-group ${{ env.AZURE_RG }} --query "[0].name" -o tsv 2>/dev/null || echo "")
+              
+              if [ -n "$KV_NAME" ] && [ "$KV_NAME" != "null" ]; then
+                echo "Assigning Key Vault permissions to $identity_type identity for $vmss_name..."
+                
+                # RBAC role assignment
+                az role assignment create \
+                  --assignee "$identity_id" \
+                  --role "Key Vault Secrets User" \
+                  --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
+                  || echo "Key Vault RBAC role already assigned"
+                
+                # Access policy for backward compatibility
+                az keyvault set-policy \
+                  --name "$KV_NAME" \
+                  --object-id "$identity_id" \
+                  --secret-permissions get list \
+                  || echo "Key Vault access policy already set"
+                
+                echo "✅ Key Vault permissions configured for $identity_type identity"
+              else
+                echo "⚠️ Key Vault not found, skipping Key Vault permissions"
+              fi
+            fi
+          }
+          
+          # Process Backend VMSS identities
+          echo "🔐 Processing Backend VMSS identities..."
+          BACKEND_IDENTITIES=$(get_vmss_identities "${{ env.VMSS_BE }}" "${{ env.AZURE_RG }}")
+          USER_BE_ID=$(echo "$BACKEND_IDENTITIES" | cut -d' ' -f1 | cut -d':' -f2)
+          SYSTEM_BE_ID=$(echo "$BACKEND_IDENTITIES" | cut -d' ' -f2 | cut -d':' -f2)
+          
+          echo "Backend User Identity: $USER_BE_ID"
+          echo "Backend System Identity: $SYSTEM_BE_ID"
+          
+          # Assign permissions to both identities for maximum compatibility
+          BACKEND_SUCCESS=0
+          if assign_acr_permissions "$USER_BE_ID" "user-assigned" "${{ env.VMSS_BE }}"; then
+            assign_keyvault_permissions "$USER_BE_ID" "user-assigned" "${{ env.VMSS_BE }}"
+            BACKEND_SUCCESS=1
           fi
           
-          if [ -n "$VMSS_FE_IDENTITY" ] && [ "$VMSS_FE_IDENTITY" != "null" ]; then
-            echo "Configuring permissions for Frontend VMSS Managed Identity: $VMSS_FE_IDENTITY"
-            
-            # Grant AcrPull role
-            az role assignment create \
-              --assignee "$VMSS_FE_IDENTITY" \
-              --role "AcrPull" \
-              --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
-              || echo "AcrPull role already assigned to Frontend VMSS"
-            
-            # Grant Key Vault Secrets User role  
-            if [ -n "$KV_NAME" ] && [ "$KV_NAME" != "null" ]; then
-              az role assignment create \
-                --assignee "$VMSS_FE_IDENTITY" \
-                --role "Key Vault Secrets User" \
-                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
-                || echo "Key Vault role already assigned to Frontend VMSS"
-            fi
-            
-            echo "Frontend VMSS permissions configured successfully"
-          else
-            echo "Warning: Could not find Frontend VMSS Managed Identity"
+          if assign_acr_permissions "$SYSTEM_BE_ID" "system-assigned" "${{ env.VMSS_BE }}"; then
+            assign_keyvault_permissions "$SYSTEM_BE_ID" "system-assigned" "${{ env.VMSS_BE }}"
+            BACKEND_SUCCESS=1
           fi
+          
+          if [ $BACKEND_SUCCESS -eq 0 ]; then
+            echo "❌ Failed to assign permissions to Backend VMSS"
+            exit 1
+          else
+            echo "✅ Backend VMSS permissions configured successfully"
+          fi
+          
+          # Process Frontend VMSS identities
+          echo "🔐 Processing Frontend VMSS identities..."
+          FRONTEND_IDENTITIES=$(get_vmss_identities "${{ env.VMSS_FE }}" "${{ env.AZURE_RG }}")
+          USER_FE_ID=$(echo "$FRONTEND_IDENTITIES" | cut -d' ' -f1 | cut -d':' -f2)
+          SYSTEM_FE_ID=$(echo "$FRONTEND_IDENTITIES" | cut -d' ' -f2 | cut -d':' -f2)
+          
+          echo "Frontend User Identity: $USER_FE_ID"
+          echo "Frontend System Identity: $SYSTEM_FE_ID"
+          
+          # Assign permissions to both identities for maximum compatibility
+          FRONTEND_SUCCESS=0
+          if assign_acr_permissions "$USER_FE_ID" "user-assigned" "${{ env.VMSS_FE }}"; then
+            assign_keyvault_permissions "$USER_FE_ID" "user-assigned" "${{ env.VMSS_FE }}"
+            FRONTEND_SUCCESS=1
+          fi
+          
+          if assign_acr_permissions "$SYSTEM_FE_ID" "system-assigned" "${{ env.VMSS_FE }}"; then
+            assign_keyvault_permissions "$SYSTEM_FE_ID" "system-assigned" "${{ env.VMSS_FE }}"
+            FRONTEND_SUCCESS=1
+          fi
+          
+          if [ $FRONTEND_SUCCESS -eq 0 ]; then
+            echo "⚠️ Warning: Could not assign permissions to Frontend VMSS (may affect image pulling)"
+          else
+            echo "✅ Frontend VMSS permissions configured successfully"
+          fi
+          
+          echo ""
+          echo "📋 Permission Assignment Summary:"
+          echo "Backend VMSS: $([ $BACKEND_SUCCESS -eq 1 ] && echo "✅ Success" || echo "❌ Failed")"
+          echo "Frontend VMSS: $([ $FRONTEND_SUCCESS -eq 1 ] && echo "✅ Success" || echo "⚠️ Partial")"
 
       - name: Configure Application Gateway Backend Pools
         run: |
@@ -732,15 +892,11 @@ jobs:
               --settings '{"protocol":"http","port":80,"requestPath":"/"}' \
               || echo "Application Health Extension already exists"
 
-            echo "Updating Frontend VMSS rolling upgrade policy..."
+            echo "Updating Frontend VMSS upgrade policy to Manual (Rolling requires health probe)..."
             az vmss update \
               --resource-group ${{ env.AZURE_RG }} \
               --name ${{ env.VMSS_FE }} \
-              --set upgradePolicy.mode=Rolling \
-              --set upgradePolicy.rollingUpgradePolicy.maxBatchInstancePercent=50 \
-              --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyInstancePercent=100 \
-              --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyUpgradedInstancePercent=100 \
-              --set upgradePolicy.rollingUpgradePolicy.pauseTimeBetweenBatches=PT30S
+              --set upgradePolicy.mode=Manual
 
             echo "Updating Frontend VMSS model with new cloud-init..."
             az vmss update \
@@ -803,13 +959,13 @@ jobs:
             echo "⚠️ Frontend VMSS not found, skipping upgrade"
           fi
 
-      - name: Deploy new image to VMSS
+      - name: Deploy new image to VMSS (Enhanced with diagnostics)
         run: |
-          echo "🚀 Deploying image ${{ needs.setup.outputs.image_tag }} to VMSS instances..."
+          echo "🚀 Deploying image ${{ needs.setup.outputs.image_tag }} to VMSS instances with enhanced diagnostics..."
           
           # Deploy to Backend VMSS if it exists
           if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
-            echo "Deploying to Backend VMSS..."
+            echo "Deploying to Backend VMSS with comprehensive health checks..."
             az vmss run-command invoke \
               --resource-group ${{ env.AZURE_RG }} \
               --name ${{ env.VMSS_BE }} \
@@ -819,6 +975,52 @@ jobs:
                 set -e
                 echo '=== Backend VMSS Instance Update Start ==='
                 echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
+                echo 'Host: \$(hostname)'
+                echo 'Date: \$(date)'
+                
+                # Check Managed Identity
+                echo '=== Managed Identity Check ==='
+                MI_TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' | jq -r .access_token 2>/dev/null || echo 'FAILED')
+                if [ \"\$MI_TOKEN\" != \"FAILED\" ] && [ -n \"\$MI_TOKEN\" ]; then
+                  echo '✅ Managed Identity token acquired'
+                else
+                  echo '❌ Managed Identity token acquisition failed'
+                fi
+                
+                # Check ACR connectivity and authentication
+                echo '=== ACR Connectivity Check ==='
+                if nslookup ${{ env.ACR_NAME }}.azurecr.io >/dev/null 2>&1; then
+                  echo '✅ ACR DNS resolution successful'
+                else
+                  echo '❌ ACR DNS resolution failed'
+                fi
+                
+                if curl -sSf https://${{ env.ACR_NAME }}.azurecr.io/v2/ >/dev/null 2>&1; then
+                  echo '✅ ACR HTTPS connectivity successful'
+                else
+                  echo '❌ ACR HTTPS connectivity failed'
+                fi
+                
+                # Test ACR authentication
+                echo '=== ACR Authentication Test ==='
+                ACR_TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://${{ env.ACR_NAME }}.azurecr.io' | jq -r .access_token 2>/dev/null || echo '')
+                if [ -n \"\$ACR_TOKEN\" ] && [ \"\$ACR_TOKEN\" != \"null\" ]; then
+                  echo '✅ ACR-specific token acquired'
+                  if echo \"\$ACR_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin; then
+                    echo '✅ ACR authentication successful'
+                  else
+                    echo '⚠️ ACR authentication failed, trying fallback...'
+                    # Fallback to management token
+                    if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
+                      echo \"\$MI_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin || echo '❌ Fallback authentication failed'
+                    fi
+                  fi
+                else
+                  echo '⚠️ Direct ACR token failed, using management token...'
+                  if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
+                    echo \"\$MI_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin || echo '❌ Management token authentication failed'
+                  fi
+                fi
                 
                 # Set environment variable
                 export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
@@ -827,17 +1029,35 @@ jobs:
                 # Pull new images and restart service
                 cd /opt/yangju
                 sudo systemctl stop yangju.service
-                sudo /usr/local/bin/yangju-compose-run.sh pull
+                
+                echo '=== Pulling new images ==='
+                sudo /usr/local/bin/yangju-compose-run.sh pull || {
+                  echo '❌ Image pull failed, checking logs...'
+                  sudo docker images | grep ${{ env.ACR_NAME }}
+                  sudo journalctl -u docker -n 20 --no-pager || true
+                  exit 1
+                }
+                
                 sudo systemctl start yangju.service
                 
                 # Wait for health check
+                echo '=== Application Health Check ==='
                 for i in {1..30}; do
                   if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
-                    echo 'Backend health check passed'
+                    echo '✅ Backend health check passed after '\$i' attempts'
+                    curl -s http://localhost:4000/health | jq . || echo 'Health endpoint returned non-JSON'
                     break
+                  elif [ \$i -eq 30 ]; then
+                    echo '❌ Backend health check failed after 30 attempts'
+                    echo 'Container logs:'
+                    sudo docker logs yangju-backend --tail 50 || echo 'No container logs available'
+                    echo 'Service status:'
+                    sudo systemctl status yangju.service || true
+                    exit 1
+                  else
+                    echo 'Waiting for backend health check... ('\$i'/30)'
+                    sleep 2
                   fi
-                  echo 'Waiting for backend health check... (\$i/30)'
-                  sleep 2
                 done
                 
                 sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
@@ -961,9 +1181,195 @@ jobs:
           echo ""
           echo "🎯 Action: Setting up Web App configuration for future deployments"
 
+  real-time-diagnostics:
+    runs-on: ubuntu-latest
+    needs: [setup, create-vmss, deploy-vmss]
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    if: needs.setup.outputs.should_deploy_vmss == 'true' && (needs.create-vmss.result == 'success' || needs.deploy-vmss.result == 'success')
+    steps:
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Real-time VMSS Diagnostics and Validation
+        run: |
+          echo "🔍 Starting comprehensive VMSS diagnostics and validation..."
+          
+          # Function to run diagnostics on a VMSS instance
+          run_vmss_diagnostics() {
+            local vmss_name="$1"
+            local test_name="$2"
+            
+            if ! az vmss show --resource-group ${{ env.AZURE_RG }} --name "$vmss_name" >/dev/null 2>&1; then
+              echo "⚠️ $vmss_name not found, skipping diagnostics"
+              return 1
+            fi
+            
+            # Get first available instance
+            local instance_id
+            instance_id=$(az vmss list-instances \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name "$vmss_name" \
+              --query "[0].instanceId" -o tsv 2>/dev/null)
+            
+            if [ -z "$instance_id" ] || [ "$instance_id" = "null" ]; then
+              echo "⚠️ No instances found for $vmss_name"
+              return 1
+            fi
+            
+            echo "🔬 Running diagnostics on $vmss_name instance $instance_id..."
+            
+            az vmss run-command invoke \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name "$vmss_name" \
+              --instance-id "$instance_id" \
+              --command-id RunShellScript \
+              --scripts "
+                echo '=== $test_name VMSS Diagnostics Report ==='
+                echo 'Host: \$(hostname)'
+                echo 'Date: \$(date)'
+                echo 'Instance ID: $instance_id'
+                echo ''
+                
+                # 1. System Information
+                echo '1. System Information'
+                echo '   OS: \$(lsb_release -d | cut -f2)'
+                echo '   Kernel: \$(uname -r)'
+                echo '   Uptime: \$(uptime -p)'
+                echo ''
+                
+                # 2. Managed Identity Status
+                echo '2. Managed Identity Status'
+                MI_ENDPOINT='http://169.254.169.254/metadata/identity/oauth2/token'
+                if curl -s -H 'Metadata:true' \"\$MI_ENDPOINT?api-version=2018-02-01&resource=https://management.azure.com/\" >/dev/null 2>&1; then
+                  echo '   ✅ Managed Identity endpoint accessible'
+                  
+                  # Get token
+                  MI_TOKEN=\$(curl -s -H 'Metadata:true' \"\$MI_ENDPOINT?api-version=2018-02-01&resource=https://management.azure.com/\" | jq -r .access_token 2>/dev/null || echo 'FAILED')
+                  if [ \"\$MI_TOKEN\" != \"FAILED\" ] && [ -n \"\$MI_TOKEN\" ]; then
+                    echo '   ✅ Management token acquired (length: \${#MI_TOKEN})'
+                  else
+                    echo '   ❌ Failed to acquire management token'
+                  fi
+                  
+                  # Test ACR-specific token
+                  ACR_TOKEN=\$(curl -s -H 'Metadata:true' \"\$MI_ENDPOINT?api-version=2018-02-01&resource=https://${{ env.ACR_NAME }}.azurecr.io\" | jq -r .access_token 2>/dev/null || echo 'FAILED')
+                  if [ \"\$ACR_TOKEN\" != \"FAILED\" ] && [ -n \"\$ACR_TOKEN\" ]; then
+                    echo '   ✅ ACR-specific token acquired'
+                  else
+                    echo '   ⚠️ ACR-specific token acquisition failed (will use management token)'
+                  fi
+                else
+                  echo '   ❌ Managed Identity endpoint not accessible'
+                fi
+                echo ''
+                
+                # 3. Network Connectivity
+                echo '3. Network Connectivity'
+                
+                # DNS Resolution
+                if nslookup ${{ env.ACR_NAME }}.azurecr.io >/dev/null 2>&1; then
+                  ACR_IP=\$(nslookup ${{ env.ACR_NAME }}.azurecr.io | grep 'Address:' | tail -1 | awk '{print \$2}')
+                  echo '   ✅ ACR DNS resolution: \$ACR_IP'
+                else
+                  echo '   ❌ ACR DNS resolution failed'
+                fi
+                
+                # HTTPS Connectivity
+                if curl -sSf https://${{ env.ACR_NAME }}.azurecr.io/v2/ >/dev/null 2>&1; then
+                  echo '   ✅ ACR HTTPS connectivity successful'
+                else
+                  echo '   ❌ ACR HTTPS connectivity failed'
+                fi
+                
+                # Key Vault connectivity (if configured)
+                KV_NAME=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/instance/compute/tags?api-version=2021-01-01&format=text' | grep -o 'keyvault:[^;]*' | cut -d':' -f2 2>/dev/null || echo 'kv-bcd00')
+                if [ -n \"\$KV_NAME\" ]; then
+                  if nslookup \"\$KV_NAME.vault.azure.net\" >/dev/null 2>&1; then
+                    echo '   ✅ Key Vault DNS resolution successful'
+                  else
+                    echo '   ⚠️ Key Vault DNS resolution failed or not configured'
+                  fi
+                fi
+                echo ''
+                
+                # 4. Docker Status
+                echo '4. Docker Status'
+                if systemctl is-active docker >/dev/null 2>&1; then
+                  echo '   ✅ Docker service is active'
+                  echo '   Docker version: \$(docker --version 2>/dev/null || echo \"Not available\")'
+                  
+                  # Docker login test
+                  if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
+                    echo '   Testing Docker login...'
+                    if echo \"\$MI_TOKEN\" | docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin >/dev/null 2>&1; then
+                      echo '   ✅ Docker ACR login successful'
+                    else
+                      echo '   ❌ Docker ACR login failed'
+                    fi
+                  fi
+                else
+                  echo '   ❌ Docker service is not active'
+                  systemctl status docker --no-pager -l || true
+                fi
+                echo ''
+                
+                # 5. Application Status (Backend specific)
+                if [ '$test_name' = 'Backend' ]; then
+                  echo '5. Application Status'
+                  
+                  # Check yangju service
+                  if systemctl is-active yangju.service >/dev/null 2>&1; then
+                    echo '   ✅ Yangju service is active'
+                  else
+                    echo '   ❌ Yangju service is not active'
+                    systemctl status yangju.service --no-pager -l || true
+                  fi
+                  
+                  # Health endpoint test
+                  if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
+                    echo '   ✅ Health endpoint responding'
+                    HEALTH_DATA=\$(curl -s http://localhost:4000/health 2>/dev/null || echo '{}')
+                    echo \"   Health data: \$HEALTH_DATA\" | head -c 200
+                  else
+                    echo '   ❌ Health endpoint not responding'
+                  fi
+                  
+                  # Container status
+                  echo '   Container status:'
+                  docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' 2>/dev/null || echo '   No containers running'
+                fi
+                
+                # 6. Cloud-init Status
+                echo ''
+                echo '6. Cloud-init Status'
+                if [ -f /var/log/cloud-init-output.log ]; then
+                  echo '   Cloud-init log (last 10 lines):'
+                  tail -10 /var/log/cloud-init-output.log | sed 's/^/     /'
+                else
+                  echo '   ⚠️ Cloud-init log not found'
+                fi
+                
+                echo ''
+                echo '=== Diagnostics Complete ==='
+              " \
+              --query 'value[0].message' -o tsv
+          }
+          
+          # Run diagnostics on both VMSS
+          echo "Running diagnostics on Backend VMSS..."
+          run_vmss_diagnostics "${{ env.VMSS_BE }}" "Backend" || echo "Backend diagnostics failed"
+          
+          echo ""
+          echo "Running diagnostics on Frontend VMSS..."
+          run_vmss_diagnostics "${{ env.VMSS_FE }}" "Frontend" || echo "Frontend diagnostics failed"
+
   health-check:
     runs-on: ubuntu-latest
-    needs: [setup, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp]
+    needs: [setup, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp, real-time-diagnostics]
     if: always() && (needs.deploy-vmss.result == 'success' || needs.deploy-webapp.result == 'success' || needs.check-vmss.outputs.vmss_configured == 'true' || needs.check-webapp.outputs.webapp_configured == 'true')
     environment: ${{ github.event.inputs.environment || 'dev' }}
     steps:
@@ -1054,7 +1460,7 @@ jobs:
 
   summary:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp, health-check]
+    needs: [setup, build-and-push, check-vmss, check-webapp, create-vmss, deploy-vmss, deploy-webapp, health-check, auto-fix-vmss]
     if: always()
     steps:
       - name: Deployment Summary
@@ -1077,7 +1483,88 @@ jobs:
           echo "- **VMSS Deployment**: ${{ needs.deploy-vmss.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Web App Deployment**: ${{ needs.deploy-webapp.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Health Check**: ${{ needs.health-check.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto Fix VMSS**: ${{ needs.auto-fix-vmss.result || 'skipped' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "## Images" >> $GITHUB_STEP_SUMMARY
           echo "- **Backend**: \`${{ needs.build-and-push.outputs.backend_image || 'N/A' }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Frontend**: \`${{ needs.build-and-push.outputs.frontend_image || 'N/A' }}\`" >> $GITHUB_STEP_SUMMARY
+
+  auto-fix-vmss:
+    if: ${{ (inputs.deployment_target == 'vmss-only' || inputs.deployment_target == 'both') && always() }}
+    needs: [deploy-vmss, health-check]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 체크아웃
+      uses: actions/checkout@v4
+    
+    - name: Azure 로그인
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    
+    - name: 자동 문제 해결 실행
+      id: auto-fix
+      run: |
+        echo "🔧 VMSS 자동 문제 해결 시작..."
+        
+        # 스크립트 실행 권한 부여
+        chmod +x scripts/auto-fix-vmss.sh
+        
+        # 자동 해결 스크립트 실행
+        if scripts/auto-fix-vmss.sh ${{ env.AZURE_RG }} ${{ env.VMSS_BE }} ${{ env.ACR_NAME }}; then
+          echo "result=success" >> $GITHUB_OUTPUT
+          echo "✅ VMSS 문제 자동 해결 완료"
+        else
+          echo "result=failed" >> $GITHUB_OUTPUT
+          echo "❌ 자동 해결 실패 - 수동 확인 필요"
+          exit 1
+        fi
+    
+    - name: 최종 상태 검증
+      if: steps.auto-fix.outputs.result == 'success'
+      run: |
+        echo "🔍 최종 상태 검증 중..."
+        
+        # VMSS 상태 확인
+        VMSS_STATE=$(az vmss show \
+          --resource-group ${{ env.AZURE_RG }} \
+          --name ${{ env.VMSS_BE }} \
+          --query "provisioningState" -o tsv)
+        
+        echo "VMSS 프로비저닝 상태: $VMSS_STATE"
+        
+        # 인스턴스 상태 확인
+        INSTANCE_COUNT=$(az vmss list-instances \
+          --resource-group ${{ env.AZURE_RG }} \
+          --name ${{ env.VMSS_BE }} \
+          --query "length(@)" -o tsv)
+        
+        echo "실행 중인 인스턴스 수: $INSTANCE_COUNT"
+        
+        if [ "$VMSS_STATE" = "Succeeded" ] && [ "$INSTANCE_COUNT" -gt 0 ]; then
+          echo "✅ VMSS가 정상적으로 실행 중입니다"
+        else
+          echo "⚠️ VMSS 상태를 확인해주세요"
+        fi
+    
+    - name: 문제 해결 실패 시 진단 정보 제공
+      if: failure()
+      run: |
+        echo "❌ 자동 문제 해결이 실패했습니다."
+        echo ""
+        echo "다음 단계를 수동으로 확인해주세요:"
+        echo ""
+        echo "1. 관리 ID 확인:"
+        echo "   az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query 'identity'"
+        echo ""
+        echo "2. ACR 권한 확인:"
+        echo "   az role assignment list --assignee <PRINCIPAL_ID> --scope /subscriptions/<SUBSCRIPTION_ID>/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}"
+        echo ""
+        echo "3. NSG 규칙 확인:"
+        echo "   az network nsg rule list --resource-group ${{ env.AZURE_RG }} --nsg-name ${{ env.VMSS_BE }}-nsg"
+        echo ""
+        echo "4. 수동 스크립트 실행:"
+        echo "   ./scripts/fix-vmss-acr-issues.ps1"
