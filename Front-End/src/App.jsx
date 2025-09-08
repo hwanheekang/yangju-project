@@ -19,8 +19,11 @@ function App() {
     '여가활동', '의료비', '의류비', '경조사비', '기타'
   ]);
   const [sidebarOpen, setSidebarOpen] = useState(() => {
-    // PC에서는 기본 열림, 모바일에서는 기본 닫힘
-    return window.innerWidth > 768;
+    // 기본값: 닫힘. 사용자 선택을 localStorage에서 복원
+    if (typeof window === 'undefined') return false;
+    const stored = localStorage.getItem('sidebarOpen');
+    if (stored !== null) return stored === 'true';
+    return false;
   });
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'light';
@@ -56,12 +59,10 @@ function App() {
   // 윈도우 리사이즈 시 사이드바 상태 조정
   useEffect(() => {
     const handleResize = () => {
+      // 모바일 이하로 줄어들면 자동 닫기만 수행, 데스크톱에서는 자동 열기 하지 않음
       if (window.innerWidth <= 768) {
-        setSidebarOpen(false); // 모바일에서는 닫기
+        setSidebarOpen(false);
         document.body.classList.remove('sidebar-open');
-      } else {
-        setSidebarOpen(true); // PC에서는 열기
-        document.body.classList.add('sidebar-open');
       }
     };
 
@@ -87,10 +88,11 @@ function App() {
   };
     const handleSidebarToggle = () => {
     const newState = !sidebarOpen;
-    setSidebarOpen(newState);
+  setSidebarOpen(newState);
+  localStorage.setItem('sidebarOpen', String(newState));
     
     // body 클래스 토글
-    if (newState) {
+  if (newState) {
       document.body.classList.add('sidebar-open');
     } else {
       document.body.classList.remove('sidebar-open');
