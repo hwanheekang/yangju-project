@@ -440,7 +440,7 @@ jobs:
             --assign-identity "$VMSS_BE_IDENTITY_ID" \
             --load-balancer nlb-bcd00 \
             --backend-pool-name backend-lb-pool \
-            --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/HealthProbe" \
+            --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/probe-for-port-4000" \
             --location eastus2
           
           echo "✅ Backend VMSS created successfully"
