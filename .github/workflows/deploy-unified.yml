@@ -187,13 +187,13 @@ jobs:
             VMSS_FE_EXISTS=false
           fi
           
-          # Determine if VMSS are configured (both exist)
-          if [ "$VMSS_BE_EXISTS" = "true" ] && [ "$VMSS_FE_EXISTS" = "true" ]; then
-            echo "✅ VMSS are fully configured - VMSS deployment will be skipped"
-            echo "vmss_configured=true" >> $GITHUB_OUTPUT
-          else
-            echo "⚠️ VMSS are not fully configured - VMSS deployment will proceed"
+          # Individual VMSS deployment decisions
+          if [ "$VMSS_BE_EXISTS" = "false" ] || [ "$VMSS_FE_EXISTS" = "false" ]; then
+            echo "⚠️ Some VMSS are missing - VMSS deployment will proceed"
             echo "vmss_configured=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ All VMSS are configured - VMSS deployment will be skipped"
+            echo "vmss_configured=true" >> $GITHUB_OUTPUT
           fi
 
   deploy-infrastructure:
@@ -421,50 +421,56 @@ jobs:
           VMSS_BE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-be-bcd00 --query "id" -o tsv)
           VMSS_FE_IDENTITY_ID=$(az identity show --resource-group ${{ env.AZURE_RG }} --name id-vmss-fe-bcd00 --query "id" -o tsv)
           
-          # Create Backend VMSS (since we checked it doesn't exist in check-vmss job)
-          echo "Creating Backend VMSS..."
-          az vmss create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }} \
-            --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
-            --instance-count 2 \
-            --vm-sku Standard_B2s \
-            --vnet-name vnet-eus2 \
-            --subnet snet-eus2-be \
-            --nsg vmss-be-bcd00-nsg \
-            --orchestration-mode Uniform \
-            --upgrade-policy-mode automatic \
-            --admin-username bcdbeuser00 \
-            --generate-ssh-keys \
-            --custom-data infra/cloud-init-optimized.yaml \
-            --assign-identity "$VMSS_BE_IDENTITY_ID" \
-            --load-balancer nlb-bcd00 \
-            --backend-pool-name backend-lb-pool \
-            --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/probe-for-port-4000" \
-            --location eastus2
+          # Create Backend VMSS only if it doesn't exist
+          if ! az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
+            echo "Creating Backend VMSS..."
+            az vmss create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_BE }} \
+              --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
+              --instance-count 2 \
+              --vm-sku Standard_B2s \
+              --vnet-name vnet-eus2 \
+              --subnet snet-eus2-be \
+              --nsg vmss-be-bcd00-nsg \
+              --orchestration-mode Uniform \
+              --upgrade-policy-mode automatic \
+              --admin-username bcdbeuser00 \
+              --generate-ssh-keys \
+              --custom-data infra/cloud-init-optimized.yaml \
+              --assign-identity "$VMSS_BE_IDENTITY_ID" \
+              --load-balancer nlb-bcd00 \
+              --backend-pool-name backend-lb-pool \
+              --health-probe "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.Network/loadBalancers/nlb-bcd00/probes/probe-for-port-4000" \
+              --location eastus2
+            echo "✅ Backend VMSS created successfully"
+          else
+            echo "✅ Backend VMSS already exists, skipping creation"
+          fi
           
-          echo "✅ Backend VMSS created successfully"
-          
-          # Create Frontend VMSS (since we checked it doesn't exist in check-vmss job)
-          echo "Creating Frontend VMSS..."
-          az vmss create \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_FE }} \
-            --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
-            --instance-count 2 \
-            --vm-sku Standard_B2s \
-            --vnet-name vnet-eus2 \
-            --subnet snet-eus2-fe \
-            --nsg vmss-fe-bcd00-nsg \
-            --orchestration-mode Uniform \
-            --upgrade-policy-mode automatic \
-            --admin-username bcdfeuser00 \
-            --generate-ssh-keys \
-            --custom-data infra/cloud-init-frontend.yaml \
-            --assign-identity "$VMSS_FE_IDENTITY_ID" \
-            --location eastus2
-          
-          echo "✅ Frontend VMSS created successfully"
+          # Create Frontend VMSS only if it doesn't exist
+          if ! az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            echo "Creating Frontend VMSS..."
+            az vmss create \
+              --resource-group ${{ env.AZURE_RG }} \
+              --name ${{ env.VMSS_FE }} \
+              --image "Canonical:0001-com-ubuntu-server-jammy:22_04-lts-gen2:latest" \
+              --instance-count 2 \
+              --vm-sku Standard_B2s \
+              --vnet-name vnet-eus2 \
+              --subnet snet-eus2-fe \
+              --nsg vmss-fe-bcd00-nsg \
+              --orchestration-mode Uniform \
+              --upgrade-policy-mode automatic \
+              --admin-username bcdfeuser00 \
+              --generate-ssh-keys \
+              --custom-data infra/cloud-init-frontend.yaml \
+              --assign-identity "$VMSS_FE_IDENTITY_ID" \
+              --location eastus2
+            echo "✅ Frontend VMSS created successfully"
+          else
+            echo "✅ Frontend VMSS already exists, skipping creation"
+          fi
 
       - name: Configure VMSS Managed Identity permissions
         run: |
@@ -530,7 +536,10 @@ jobs:
         run: |
           echo "Configuring Application Gateway backend pools..."
           
-          # Use existing backend pool for API calls (routed to load balancer)
+          # Wait for VMSS to be fully ready
+          sleep 30
+          
+          # Create backend pool for API calls (routed to load balancer)
           az network application-gateway address-pool create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
@@ -547,7 +556,7 @@ jobs:
           # Configure routing rules
           echo "Configuring Application Gateway routing rules..."
           
-          # Use existing HTTP settings for backend (port 4000 through load balancer)
+          # Create HTTP settings for backend (port 4000 through load balancer)
           az network application-gateway http-settings create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
@@ -557,7 +566,7 @@ jobs:
             --cookie-based-affinity Disabled \
             || echo "Backend HTTP settings already exist"
           
-          # Create HTTP settings for frontend (port 80)
+          # Create HTTP settings for frontend (port 80 direct to VMSS)
           az network application-gateway http-settings create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
@@ -567,7 +576,7 @@ jobs:
             --cookie-based-affinity Disabled \
             || echo "Frontend HTTP settings already exist"
           
-          # Create URL path map for routing with default path
+          # Create URL path map for routing with default path to frontend
           az network application-gateway url-path-map create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
@@ -590,36 +599,44 @@ jobs:
             --http-settings setting-for-backend \
             || echo "Backend path rule already exists"
             
-          # Associate only Frontend VMSS with Application Gateway
-          echo "Associating Frontend VMSS instances with Application Gateway pool..."
+          # Configure Frontend VMSS → Application Gateway direct connection
+          echo "Configuring Frontend VMSS → Application Gateway direct connection..."
           
-          # Get Frontend VMSS NIC names and associate with frontend pool
-          FRONTEND_NIC_IDS=$(az vmss list-instances \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_FE }} \
-            --query "[].networkProfile.networkInterfaces[0].id" -o tsv)
-          
-          for nic_id in $FRONTEND_NIC_IDS; do
-            NIC_NAME=$(basename "$nic_id")
-            echo "Associating Frontend NIC: $NIC_NAME"
-            az network nic ip-config address-pool add \
+          # Check if Frontend VMSS exists and has instances
+          if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            # Get Frontend VMSS NIC names and associate with frontend pool
+            FRONTEND_NIC_IDS=$(az vmss list-instances \
               --resource-group ${{ env.AZURE_RG }} \
-              --nic-name "$NIC_NAME" \
-              --ip-config-name ipconfig${{ env.VMSS_FE }} \
-              --address-pool frontend-pool \
-              --gateway-name agw-bcd00 \
-              || echo "Frontend NIC already associated"
-          done
+              --name ${{ env.VMSS_FE }} \
+              --query "[].networkProfile.networkInterfaces[0].id" -o tsv)
+            
+            for nic_id in $FRONTEND_NIC_IDS; do
+              NIC_NAME=$(basename "$nic_id")
+              echo "Associating Frontend NIC: $NIC_NAME with Application Gateway"
+              az network nic ip-config address-pool add \
+                --resource-group ${{ env.AZURE_RG }} \
+                --nic-name "$NIC_NAME" \
+                --ip-config-name ipconfig${{ env.VMSS_FE }} \
+                --address-pool frontend-pool \
+                --gateway-name agw-bcd00 \
+                || echo "Frontend NIC already associated"
+            done
+            echo "✅ Frontend VMSS → Application Gateway connection configured"
+          else
+            echo "⚠️ Frontend VMSS not found, skipping direct connection"
+          fi
           
-          # For backend API routing, we need to add load balancer frontend IP to backend-pool
-          echo "Adding load balancer frontend IP to backend pool..."
+          # Configure Backend API routing: Application Gateway → Load Balancer → Backend VMSS
+          echo "Configuring Application Gateway → Load Balancer → Backend VMSS routing..."
+          
+          # Add load balancer frontend IP to backend pool
           NLB_FRONTEND_IP=$(az network lb frontend-ip list \
             --resource-group ${{ env.AZURE_RG }} \
             --lb-name nlb-bcd00 \
             --query "[0].privateIPAddress" -o tsv)
           
           if [ -n "$NLB_FRONTEND_IP" ] && [ "$NLB_FRONTEND_IP" != "null" ]; then
-            echo "Load balancer frontend IP: $NLB_FRONTEND_IP"
+            echo "Adding Load Balancer frontend IP ($NLB_FRONTEND_IP) to backend pool"
             az network application-gateway address-pool address add \
               --resource-group ${{ env.AZURE_RG }} \
               --gateway-name agw-bcd00 \
@@ -627,9 +644,15 @@ jobs:
               --name nlb-frontend \
               --ip-address "$NLB_FRONTEND_IP" \
               || echo "Load balancer IP already added to backend pool"
+            echo "✅ Application Gateway → Load Balancer → Backend VMSS routing configured"
           else
             echo "⚠️ Could not find load balancer frontend IP"
           fi
+          
+          echo "📊 Application Gateway Configuration Summary:"
+          echo "  🔸 Frontend Traffic: Application Gateway → Frontend VMSS (direct)"
+          echo "  🔸 Backend API Traffic: Application Gateway → Load Balancer → Backend VMSS"
+          echo "  🔸 Routing: /* → Frontend Pool, /api/* → Backend Pool"
 
   deploy-vmss:
     runs-on: ubuntu-latest
