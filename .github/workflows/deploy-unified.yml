@@ -398,7 +398,7 @@ jobs:
             --nsg vmss-be-bcd00-nsg \
             --upgrade-policy-mode automatic \
             --admin-username bcdbeuser00 \
-            --ssh-key-name vmss-be-bcd00_key \
+            --generate-ssh-keys \
             --custom-data infra/cloud-init-optimized.yaml \
             --assign-identity \
             --location eastus2
@@ -418,7 +418,7 @@ jobs:
             --nsg vmss-fe-bcd00-nsg \
             --upgrade-policy-mode automatic \
             --admin-username bcdfeuser00 \
-            --ssh-key-name vmss-fe-bcd00_key \
+            --generate-ssh-keys \
             --custom-data infra/cloud-init-frontend.yaml \
             --assign-identity \
             --location eastus2
