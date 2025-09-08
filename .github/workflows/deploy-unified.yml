@@ -410,6 +410,8 @@ jobs:
             --generate-ssh-keys \
             --custom-data infra/cloud-init-optimized.yaml \
             --assign-identity "$VMSS_BE_IDENTITY_ID" \
+            --load-balancer nlb-bcd00 \
+            --backend-pool-name backend-lb-pool \
             --location eastus2
           
           echo "✅ Backend VMSS created successfully"
@@ -498,14 +500,14 @@ jobs:
         run: |
           echo "Configuring Application Gateway backend pools..."
           
-          # Add Backend VMSS to backend pool
+          # Create backend pool for API calls (routed to load balancer)
           az network application-gateway address-pool create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
-            --name backend-pool \
-            || echo "Backend pool already exists"
+            --name backend-api-pool \
+            || echo "Backend API pool already exists"
           
-          # Add Frontend VMSS to frontend pool  
+          # Create frontend pool for web traffic (directly to frontend VMSS)
           az network application-gateway address-pool create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
@@ -515,15 +517,15 @@ jobs:
           # Configure routing rules
           echo "Configuring Application Gateway routing rules..."
           
-          # Create HTTP settings for backend (port 4000)
+          # Create HTTP settings for backend API (port 4000 through load balancer)
           az network application-gateway http-settings create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
-            --name setting-for-backend \
+            --name setting-for-backend-api \
             --port 4000 \
             --protocol Http \
             --cookie-based-affinity Disabled \
-            || echo "Backend HTTP settings already exist"
+            || echo "Backend API HTTP settings already exist"
           
           # Create HTTP settings for frontend (port 80)
           az network application-gateway http-settings create \
@@ -544,37 +546,19 @@ jobs:
             --default-http-settings setting-for-frontend \
             || echo "URL path map already exists"
           
-          # Add path rule for /api/* to backend
+          # Add path rule for /api/* to backend (through load balancer)
           az network application-gateway url-path-map rule create \
             --resource-group ${{ env.AZURE_RG }} \
             --gateway-name agw-bcd00 \
             --path-map-name rule-path-based \
-            --name target-backend \
+            --name target-backend-api \
             --paths "/api/*" \
-            --address-pool backend-pool \
-            --http-settings setting-for-backend \
-            || echo "Backend path rule already exists"
+            --address-pool backend-api-pool \
+            --http-settings setting-for-backend-api \
+            || echo "Backend API path rule already exists"
             
-          # Associate VMSS with Application Gateway backend pools
-          echo "Associating VMSS instances with Application Gateway pools..."
-          
-          # Get Backend VMSS NIC names and associate with backend pool
-          BACKEND_NIC_IDS=$(az vmss list-instances \
-            --resource-group ${{ env.AZURE_RG }} \
-            --name ${{ env.VMSS_BE }} \
-            --query "[].networkProfile.networkInterfaces[0].id" -o tsv)
-          
-          for nic_id in $BACKEND_NIC_IDS; do
-            NIC_NAME=$(basename "$nic_id")
-            echo "Associating Backend NIC: $NIC_NAME"
-            az network nic ip-config address-pool add \
-              --resource-group ${{ env.AZURE_RG }} \
-              --nic-name "$NIC_NAME" \
-              --ip-config-name ipconfig${{ env.VMSS_BE }} \
-              --address-pool backend-pool \
-              --gateway-name agw-bcd00 \
-              || echo "Backend NIC already associated"
-          done
+          # Associate only Frontend VMSS with Application Gateway
+          echo "Associating Frontend VMSS instances with Application Gateway pool..."
           
           # Get Frontend VMSS NIC names and associate with frontend pool
           FRONTEND_NIC_IDS=$(az vmss list-instances \
@@ -593,17 +577,25 @@ jobs:
               --gateway-name agw-bcd00 \
               || echo "Frontend NIC already associated"
           done
-            if [ -n "$KV_NAME" ]; then
-              az role assignment create \
-                --assignee "$VMSS_IDENTITY" \
-                --role "Key Vault Secrets User" \
-                --scope "/subscriptions/${{ env.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.KeyVault/vaults/$KV_NAME" \
-                || echo "Key Vault role already assigned"
-            fi
-            
-            echo "Permissions configured successfully"
+          
+          # For backend API routing, we need to add load balancer frontend IP to backend-api-pool
+          echo "Adding load balancer frontend IP to backend API pool..."
+          NLB_FRONTEND_IP=$(az network lb frontend-ip list \
+            --resource-group ${{ env.AZURE_RG }} \
+            --lb-name nlb-bcd00 \
+            --query "[0].privateIPAddress" -o tsv)
+          
+          if [ -n "$NLB_FRONTEND_IP" ] && [ "$NLB_FRONTEND_IP" != "null" ]; then
+            echo "Load balancer frontend IP: $NLB_FRONTEND_IP"
+            az network application-gateway address-pool address add \
+              --resource-group ${{ env.AZURE_RG }} \
+              --gateway-name agw-bcd00 \
+              --pool-name backend-api-pool \
+              --name nlb-frontend \
+              --ip-address "$NLB_FRONTEND_IP" \
+              || echo "Load balancer IP already added to backend API pool"
           else
-            echo "Warning: Could not find VMSS Managed Identity"
+            echo "⚠️ Could not find load balancer frontend IP"
           fi
 
   deploy-vmss:
