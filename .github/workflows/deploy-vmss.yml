@@ -77,18 +77,15 @@ jobs:
           
           echo "Deployment config -> TARGET=${{ env.TARGET }}, IMAGE_TAG=${{ env.IMAGE_TAG }}, VMSS_NAME=${{ env.VMSS_NAME }}"
 
+      - name: Azure 토큰 갱신 (OIDC)
+        uses: azure/login@v1
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       - name: Configure VMSS Managed Identity (if needed)
         run: |
-          # 토큰 갱신을 위한 재로그인
-          echo "🔄 Azure 토큰 갱신 중..."
-          az logout 2>/dev/null || true
-          az login --service-principal \
-            --username ${{ secrets.AZURE_CLIENT_ID }} \
-            --password ${{ secrets.AZURE_CLIENT_SECRET }} \
-            --tenant ${{ secrets.AZURE_TENANT_ID }} \
-            --allow-no-subscriptions
-          az account set --subscription ${{ vars.AZURE_SUBSCRIPTION_ID }}
-          
           # Check if VMSS exists and get its identity status
           VMSS_EXISTS=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_NAME }} --query "name" -o tsv 2>/dev/null || echo "")
           
@@ -117,36 +114,31 @@ jobs:
               --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
               2>/dev/null || echo "AcrPull role already assigned or assignment failed"
             
-            # Also grant ACR token exchange role for better compatibility
+            # Also grant ACR token exchange role for better compatibility  
             az role assignment create \
               --assignee "$VMSS_IDENTITY" \
               --role "AcrPush" \
               --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
               2>/dev/null || echo "AcrPush role assignment skipped"
               
-            # 토큰 갱신 후 재시도
-            echo "🔄 권한 검증을 위한 토큰 재갱신..."
-            az logout 2>/dev/null || true
-            az login --service-principal \
-              --username ${{ secrets.AZURE_CLIENT_ID }} \
-              --password ${{ secrets.AZURE_CLIENT_SECRET }} \
-              --tenant ${{ secrets.AZURE_TENANT_ID }} \
-              --allow-no-subscriptions
-            az account set --subscription ${{ vars.AZURE_SUBSCRIPTION_ID }}
-              
             # Verify role assignments with retry
             echo "Verifying role assignments..."
             for attempt in {1..3}; do
+              echo "권한 검증 시도 $attempt/3..."
               if az role assignment list \
                 --assignee "$VMSS_IDENTITY" \
                 --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
                 --query "[].{Role:roleDefinitionName, Scope:scope}" \
-                -o table; then
+                -o table 2>/dev/null; then
                 echo "✅ 권한 검증 성공"
                 break
               else
-                echo "⚠️ 권한 검증 실패 - 재시도 $attempt/3"
-                sleep 10
+                echo "⚠️ 권한 검증 실패 - 재시도 중..."
+                if [ $attempt -eq 3 ]; then
+                  echo "❌ 권한 검증 최종 실패, 하지만 배포를 계속합니다."
+                else
+                  sleep 10
+                fi
               fi
             done
           else
