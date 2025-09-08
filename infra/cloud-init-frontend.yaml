@@ -1,24 +1,74 @@
 #cloud-config
 package_update: true
 package_upgrade: true
+
 packages:
-  - docker.io
-  - docker-compose-plugin
   - ca-certificates
   - curl
   - jq
+  - docker.io
+  - docker-compose-plugin
+  - nginx
 
 timezone: Asia/Seoul
 
 write_files:
-  - path: /opt/yangju/docker-compose.yml
+  - path: /opt/yangju-frontend/docker-compose.yml
     permissions: '0644'
     content: |
       version: "3.8"
       services:
         frontend:
-          image: acrbcd00.azurecr.io/frontend:${IMAGE_TAG}
+          image: acrbcd00.azurecr.io/frontend:${IMAGE_TAG:-latest}
           container_name: yangju-frontend
+          restart: always
+          ports:
+            - "3000:3000"
+          environment:
+            - NODE_ENV=production
+            - VITE_API_URL=http://135.119.200.213:4000
+          healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:3000"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 60s
+          logging:
+            driver: "json-file"
+            options:
+              max-size: "10m"
+              max-file: "3"
+          mem_limit: 256m
+          cpus: "0.50"
+      networks:
+        default:
+          name: yangju-frontend-net
+
+  - path: /etc/nginx/sites-available/yangju-frontend
+    permissions: '0644'
+    content: |
+      server {
+          listen 80;
+          server_name _;
+          
+          location / {
+              proxy_pass http://localhost:3000;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection 'upgrade';
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_cache_bypass $http_upgrade;
+          }
+          
+          location /health {
+              access_log off;
+              return 200 "healthy\n";
+              add_header Content-Type text/plain;
+          }
+      }
           restart: always
           ports:
             - "80:80"

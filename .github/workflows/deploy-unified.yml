@@ -838,9 +838,39 @@ jobs:
           echo "  🔸 Backend API Traffic: Application Gateway → Load Balancer → Backend VMSS"
           echo "  🔸 Routing: /* → Frontend Pool, /api/* → Backend Pool"
 
+  setup-agw-health-probes:
+    if: ${{ inputs.deployment_target == 'vmss-only' || inputs.deployment_target == 'both' }}
+    needs: [create-vmss]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 체크아웃
+      uses: actions/checkout@v4
+    
+    - name: Azure 로그인
+      uses: azure/login@v1
+      with:
+        client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    
+    - name: Application Gateway Health Probe 설정
+      run: |
+        echo "🏥 Application Gateway Health Probe 설정 중..."
+        
+        # 스크립트 실행 권한 부여
+        chmod +x scripts/create-agw-health-probe.sh
+        
+        # Health Probe 생성 실행
+        scripts/create-agw-health-probe.sh ${{ env.AZURE_RG }} agw-bcd00 || {
+          echo "⚠️ Health Probe 설정에 실패했지만 배포를 계속합니다."
+        }
+        
+        echo "✅ Application Gateway Health Probe 설정 완료"
+
   deploy-vmss:
     runs-on: ubuntu-latest
-    needs: [setup, build-and-push, deploy-infrastructure, create-vmss, check-vmss]
+    needs: [setup, build-and-push, deploy-infrastructure, create-vmss, check-vmss, setup-agw-health-probes]
     environment: ${{ github.event.inputs.environment || 'dev' }}
     if: needs.setup.outputs.should_deploy_vmss == 'true' && needs.check-vmss.outputs.vmss_configured == 'false'
     steps:
@@ -966,105 +996,118 @@ jobs:
           # Deploy to Backend VMSS if it exists
           if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
             echo "Deploying to Backend VMSS with comprehensive health checks..."
-            az vmss run-command invoke \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.VMSS_BE }} \
-              --instance-id "*" \
-              --command-id RunShellScript \
-              --scripts "
-                set -e
-                echo '=== Backend VMSS Instance Update Start ==='
-                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
-                echo 'Host: \$(hostname)'
-                echo 'Date: \$(date)'
-                
-                # Check Managed Identity
-                echo '=== Managed Identity Check ==='
-                MI_TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' | jq -r .access_token 2>/dev/null || echo 'FAILED')
-                if [ \"\$MI_TOKEN\" != \"FAILED\" ] && [ -n \"\$MI_TOKEN\" ]; then
-                  echo '✅ Managed Identity token acquired'
-                else
-                  echo '❌ Managed Identity token acquisition failed'
-                fi
-                
-                # Check ACR connectivity and authentication
-                echo '=== ACR Connectivity Check ==='
-                if nslookup ${{ env.ACR_NAME }}.azurecr.io >/dev/null 2>&1; then
-                  echo '✅ ACR DNS resolution successful'
-                else
-                  echo '❌ ACR DNS resolution failed'
-                fi
-                
-                if curl -sSf https://${{ env.ACR_NAME }}.azurecr.io/v2/ >/dev/null 2>&1; then
-                  echo '✅ ACR HTTPS connectivity successful'
-                else
-                  echo '❌ ACR HTTPS connectivity failed'
-                fi
-                
-                # Test ACR authentication
-                echo '=== ACR Authentication Test ==='
-                ACR_TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://${{ env.ACR_NAME }}.azurecr.io' | jq -r .access_token 2>/dev/null || echo '')
-                if [ -n \"\$ACR_TOKEN\" ] && [ \"\$ACR_TOKEN\" != \"null\" ]; then
-                  echo '✅ ACR-specific token acquired'
-                  if echo \"\$ACR_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin; then
-                    echo '✅ ACR authentication successful'
-                  else
-                    echo '⚠️ ACR authentication failed, trying fallback...'
-                    # Fallback to management token
-                    if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
-                      echo \"\$MI_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin || echo '❌ Fallback authentication failed'
+            
+            # Get all instance IDs
+            INSTANCE_IDS=$(az vmss list-instances --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "[].instanceId" -o tsv)
+            
+            if [ -n "$INSTANCE_IDS" ]; then
+              for instance_id in $INSTANCE_IDS; do
+                echo "Deploying to Backend VMSS instance $instance_id..."
+                az vmss run-command invoke \
+                  --resource-group ${{ env.AZURE_RG }} \
+                  --name ${{ env.VMSS_BE }} \
+                  --instance-id "$instance_id" \
+                  --command-id RunShellScript \
+                  --scripts "
+                    set -e
+                    echo '=== Backend VMSS Instance Update Start (Instance: $instance_id) ==='
+                    echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
+                    echo 'Host: \$(hostname)'
+                    echo 'Date: \$(date)'
+                    
+                    # Check Managed Identity
+                    echo '=== Managed Identity Check ==='
+                    MI_TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' | jq -r .access_token 2>/dev/null || echo 'FAILED')
+                    if [ \"\$MI_TOKEN\" != \"FAILED\" ] && [ -n \"\$MI_TOKEN\" ]; then
+                      echo '✅ Managed Identity token acquired'
+                    else
+                      echo '❌ Managed Identity token acquisition failed'
                     fi
-                  fi
-                else
-                  echo '⚠️ Direct ACR token failed, using management token...'
-                  if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
-                    echo \"\$MI_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin || echo '❌ Management token authentication failed'
-                  fi
-                fi
-                
-                # Set environment variable
-                export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
-                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju/.env
-                
-                # Pull new images and restart service
-                cd /opt/yangju
-                sudo systemctl stop yangju.service
-                
-                echo '=== Pulling new images ==='
-                sudo /usr/local/bin/yangju-compose-run.sh pull || {
-                  echo '❌ Image pull failed, checking logs...'
-                  sudo docker images | grep ${{ env.ACR_NAME }}
-                  sudo journalctl -u docker -n 20 --no-pager || true
-                  exit 1
-                }
-                
-                sudo systemctl start yangju.service
-                
-                # Wait for health check
-                echo '=== Application Health Check ==='
-                for i in {1..30}; do
-                  if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
-                    echo '✅ Backend health check passed after '\$i' attempts'
-                    curl -s http://localhost:4000/health | jq . || echo 'Health endpoint returned non-JSON'
-                    break
-                  elif [ \$i -eq 30 ]; then
-                    echo '❌ Backend health check failed after 30 attempts'
-                    echo 'Container logs:'
-                    sudo docker logs yangju-backend --tail 50 || echo 'No container logs available'
-                    echo 'Service status:'
-                    sudo systemctl status yangju.service || true
-                    exit 1
-                  else
-                    echo 'Waiting for backend health check... ('\$i'/30)'
-                    sleep 2
-                  fi
-                done
-                
-                sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-                echo '=== Backend VMSS Instance Update Complete ==='
-              " \
-              --query 'value[].message' -o tsv
-            echo "✅ Backend VMSS deployment completed"
+                    
+                    # Check ACR connectivity and authentication
+                    echo '=== ACR Connectivity Check ==='
+                    if nslookup ${{ env.ACR_NAME }}.azurecr.io >/dev/null 2>&1; then
+                      echo '✅ ACR DNS resolution successful'
+                    else
+                      echo '❌ ACR DNS resolution failed'
+                    fi
+                    
+                    if curl -sSf https://${{ env.ACR_NAME }}.azurecr.io/v2/ >/dev/null 2>&1; then
+                      echo '✅ ACR HTTPS connectivity successful'
+                    else
+                      echo '❌ ACR HTTPS connectivity failed'
+                    fi
+                    
+                    # Test ACR authentication
+                    echo '=== ACR Authentication Test ==='
+                    ACR_TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://${{ env.ACR_NAME }}.azurecr.io' | jq -r .access_token 2>/dev/null || echo '')
+                    if [ -n \"\$ACR_TOKEN\" ] && [ \"\$ACR_TOKEN\" != \"null\" ]; then
+                      echo '✅ ACR-specific token acquired'
+                      if echo \"\$ACR_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin; then
+                        echo '✅ ACR authentication successful'
+                      else
+                        echo '⚠️ ACR authentication failed, trying fallback...'
+                        # Fallback to management token
+                        if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
+                          echo \"\$MI_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin || echo '❌ Fallback authentication failed'
+                        fi
+                      fi
+                    else
+                      echo '⚠️ Direct ACR token failed, using management token...'
+                      if [ \"\$MI_TOKEN\" != \"FAILED\" ]; then
+                        echo \"\$MI_TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin || echo '❌ Management token authentication failed'
+                      fi
+                    fi
+                    
+                    # Set environment variable
+                    export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
+                    echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' | sudo tee -a /opt/yangju/.env
+                    
+                    # Pull new images and restart service
+                    cd /opt/yangju
+                    sudo systemctl stop yangju.service || true
+                    
+                    echo '=== Pulling new images ==='
+                    sudo /usr/local/bin/yangju-compose-run.sh pull || {
+                      echo '❌ Image pull failed, checking logs...'
+                      sudo docker images | grep ${{ env.ACR_NAME }} || echo 'No ACR images found'
+                      sudo journalctl -u docker -n 20 --no-pager || true
+                      exit 1
+                    }
+                    
+                    sudo systemctl start yangju.service
+                    
+                    # Wait for health check
+                    echo '=== Application Health Check ==='
+                    for i in {1..30}; do
+                      if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
+                        echo '✅ Backend health check passed after '\$i' attempts'
+                        curl -s http://localhost:4000/health | jq . || echo 'Health endpoint returned non-JSON'
+                        break
+                      elif [ \$i -eq 30 ]; then
+                        echo '❌ Backend health check failed after 30 attempts'
+                        echo 'Container logs:'
+                        sudo docker logs yangju-backend --tail 50 || echo 'No container logs available'
+                        echo 'Service status:'
+                        sudo systemctl status yangju.service || true
+                        exit 1
+                      else
+                        echo 'Waiting for backend health check... ('\$i'/30)'
+                        sleep 2
+                      fi
+                    done
+                    
+                    sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                    echo '=== Backend VMSS Instance Update Complete ==='
+                  " \
+                  --query 'value[].message' -o tsv || echo "❌ Instance $instance_id deployment failed"
+                  
+                echo "✅ Backend VMSS instance $instance_id deployment completed"
+                sleep 10  # Instance 간 간격
+              done
+            else
+              echo "❌ No running instances found in Backend VMSS"
+            fi
           else
             echo "⚠️ Backend VMSS not found, skipping deployment"
           fi
