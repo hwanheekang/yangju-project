@@ -274,7 +274,7 @@ jobs:
             --nsg-name vmss-be-bcd00-nsg \
             --name "Allow-AGW-Backend-4000" \
             --priority 1000 \
-            --source-address-prefixes "10.0.1.0/24" \
+            --source-address-prefixes "172.16.0.0/27" \
             --destination-port-ranges "4000" \
             --access "Allow" \
             --protocol "Tcp" \
@@ -298,7 +298,7 @@ jobs:
             --nsg-name vmss-fe-bcd00-nsg \
             --name "Allow-AGW-Frontend-80" \
             --priority 1000 \
-            --source-address-prefixes "10.0.1.0/24" \
+            --source-address-prefixes "172.16.0.0/27" \
             --destination-port-ranges "80" \
             --access "Allow" \
             --protocol "Tcp" \
@@ -629,24 +629,24 @@ jobs:
           
           # Check if Frontend VMSS exists and has instances
           if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
-            # Get Frontend VMSS NIC names and associate with frontend pool
-            FRONTEND_NIC_IDS=$(az vmss list-instances \
+            # Get Frontend VMSS instance private IPs
+            FRONTEND_IPS=$(az vmss nic list \
               --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.VMSS_FE }} \
-              --query "[].networkProfile.networkInterfaces[0].id" -o tsv)
+              --vmss-name ${{ env.VMSS_FE }} \
+              --query "[].ipConfigurations[0].privateIPAddress" -o tsv | tr '\n' ' ')
             
-            for nic_id in $FRONTEND_NIC_IDS; do
-              NIC_NAME=$(basename "$nic_id")
-              echo "Associating Frontend NIC: $NIC_NAME with Application Gateway"
-              az network nic ip-config address-pool add \
+            if [ -n "$FRONTEND_IPS" ]; then
+              echo "Adding Frontend VMSS IPs ($FRONTEND_IPS) to frontend pool"
+              az network application-gateway address-pool update \
                 --resource-group ${{ env.AZURE_RG }} \
-                --nic-name "$NIC_NAME" \
-                --ip-config-name ipconfig${{ env.VMSS_FE }} \
-                --address-pool frontend-pool \
                 --gateway-name agw-bcd00 \
-                || echo "Frontend NIC already associated"
-            done
-            echo "✅ Frontend VMSS → Application Gateway connection configured"
+                --name frontend-pool \
+                --servers $FRONTEND_IPS \
+                || echo "Frontend IPs already added to frontend pool"
+              echo "✅ Frontend VMSS → Application Gateway connection configured"
+            else
+              echo "⚠️ Could not find Frontend VMSS instance IPs"
+            fi
           else
             echo "⚠️ Frontend VMSS not found, skipping direct connection"
           fi
@@ -662,12 +662,11 @@ jobs:
           
           if [ -n "$NLB_FRONTEND_IP" ] && [ "$NLB_FRONTEND_IP" != "null" ]; then
             echo "Adding Load Balancer frontend IP ($NLB_FRONTEND_IP) to backend pool"
-            az network application-gateway address-pool address add \
+            az network application-gateway address-pool update \
               --resource-group ${{ env.AZURE_RG }} \
               --gateway-name agw-bcd00 \
-              --pool-name backend-pool \
-              --name nlb-frontend \
-              --ip-address "$NLB_FRONTEND_IP" \
+              --name backend-pool \
+              --servers "$NLB_FRONTEND_IP" \
               || echo "Load balancer IP already added to backend pool"
             echo "✅ Application Gateway → Load Balancer → Backend VMSS routing configured"
           else
@@ -723,6 +722,16 @@ jobs:
           
           # Update Frontend VMSS if it exists
           if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
+            echo "Adding Application Health Extension to Frontend VMSS..."
+            az vmss extension set \
+              --resource-group ${{ env.AZURE_RG }} \
+              --vmss-name ${{ env.VMSS_FE }} \
+              --name ApplicationHealthLinux \
+              --publisher Microsoft.ManagedServices \
+              --version 1.0 \
+              --settings '{"protocol":"http","port":80,"requestPath":"/"}' \
+              || echo "Application Health Extension already exists"
+
             echo "Updating Frontend VMSS rolling upgrade policy..."
             az vmss update \
               --resource-group ${{ env.AZURE_RG }} \
