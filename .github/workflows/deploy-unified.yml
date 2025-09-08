@@ -49,8 +49,8 @@ env:
   ACR_NAME: acrbcd00
   VMSS_BE: vmss-be-bcd00
   VMSS_FE: vmss-fe-bcd00
-  WEBAPP_BE: app-be-bcd00
-  WEBAPP_FE: app-fe-bcd00
+  WEBAPP_BE: webapp-be-bcd00
+  WEBAPP_FE: webapp-fe-bcd00
   IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
   DEPLOYMENT_TARGET: ${{ github.event.inputs.deployment_target || 'both' }}
   ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
@@ -370,7 +370,8 @@ jobs:
                 --http-settings-cookie-based-affinity Enabled \
                 --frontend-port 80 \
                 --http-settings-port 80 \
-                --http-settings-protocol Http
+                --http-settings-protocol Http \
+                --priority 100
               
               echo "✅ Application Gateway created successfully"
               echo "AGW_EXISTS=true" >> $GITHUB_ENV
