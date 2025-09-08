@@ -50,6 +50,23 @@ function App() {
     if (isLoggedIn) fetchReceipts();
   }, [isLoggedIn]);
 
+  // 로그인 상태에 따라 body 클래스 관리 (스크롤 제어)
+  useEffect(() => {
+    if (isLoggedIn) {
+      document.body.classList.remove('login-page');
+      document.documentElement.classList.remove('login-page');
+    } else {
+      document.body.classList.add('login-page');
+      document.documentElement.classList.add('login-page');
+    }
+    
+    // 컴포넌트 언마운트 시 정리
+    return () => {
+      document.body.classList.remove('login-page');
+      document.documentElement.classList.remove('login-page');
+    };
+  }, [isLoggedIn]);
+
   // 윈도우 리사이즈 시 사이드바 상태 조정
   useEffect(() => {
     const handleResize = () => {

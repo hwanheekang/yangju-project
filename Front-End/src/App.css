@@ -3,7 +3,7 @@
    ========================= */
 
 .login-page-container {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -12,6 +12,7 @@
   width: 100vw;
   box-sizing: border-box;
   padding: 0 1rem;
+  overflow: hidden; /* 스크롤 방지 */
 }
 
 .login-logo-area {
@@ -129,6 +130,12 @@
   width: 100%;
   box-sizing: border-box;
   position: relative;
+}
+
+/* 로그인 페이지에서 app-container 스크롤 방지 */
+body.login-page .app-container {
+  height: 100vh !important;
+  overflow: hidden !important;
 }
 
 /* 사이드바 배경 오버레이 */
@@ -321,11 +328,24 @@
 /* 로그인 페이지용 메인 컨텐츠 */
 .main-content-login {
   flex: 1;
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--bg);
+  overflow: hidden; /* 스크롤 방지 */
+}
+
+.main-content-login main {
+  width: 100%;
+  max-width: 1000px;
+  padding: 0; /* 로그인 페이지에서는 패딩 제거 */
+  overflow: hidden; /* 스크롤 방지 */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
 }
 
 /* 실제 페이지 내용 컨테이너 */
@@ -673,13 +693,8 @@ body, html, #root {
   scrollbar-gutter: stable both-edges;
 }
 
-/* 모바일에서 단일 스크롤 구조 */
-@media (max-width: 768px) {
-  body {
-    overflow-y: auto; /* 세로 스크롤만 허용 */
-    height: auto; /* 자동 높이 */
-  }
-}
+/* Responsive logo sizing */
+.logo-img { height: 288px; max-height: 22vh; }
 
 /* 전역 박스 사이징 */
 *, *::before, *::after {
@@ -687,10 +702,17 @@ body, html, #root {
   max-width: 100vw; /* 모든 요소가 뷰포트를 초과하지 않도록 */
 }
 
-/* Responsive logo sizing */
-.logo-img { height: 288px; max-height: 22vh; }
+/* 모바일에서 단일 스크롤 구조 및 로고 크기 조정 */
 @media (max-width: 768px) {
-  .logo-img { height: 144px; max-height: 18vh; }
+  body {
+    overflow-y: auto; /* 세로 스크롤만 허용 */
+    height: auto; /* 자동 높이 */
+  }
+  
+  .logo-img { 
+    height: 144px; 
+    max-height: 18vh; 
+  }
 }
 
 /* Actions row at top of main content */
@@ -917,8 +939,6 @@ section.card.monthly-category .block-body > div { flex: initial !important; min-
   display: block;
 }
 
-/* Former rule to hide '오늘' button removed so drag handle remains visible */
-
 /* 텍스트 포인트 */
 .text-primary {
   color: var(--primary);
@@ -963,10 +983,18 @@ body {
   color: #222;
 }
 
-.app-layout {
-  display: flex;
-  min-height: 100vh;
-  background: #f6f8fb;
+/* 로그인 페이지에서 스크롤 방지 */
+body.login-page {
+  overflow: hidden !important;
+  height: 100vh !important;
+  position: fixed !important;
+  width: 100% !important;
+}
+
+/* 로그인 페이지에서 html도 스크롤 방지 */
+html.login-page {
+  overflow: hidden !important;
+  height: 100vh !important;
 }
 
 .sidebar {
@@ -1274,7 +1302,6 @@ body {
   }
 }
 
-/* 미디어 쿼리 내부에서 중복 제거 */
 @media (max-width: 1200px) {
   .main-content {
     padding: 0 1rem;
@@ -1294,7 +1321,6 @@ body {
     justify-content: center !important;
     box-sizing: border-box !important;
   }
-  /* Override any previous mobile icon sizing to 60% */
 
   /* 기본(모바일/태블릿)에서는 85%로, 1024px 이상에서만 60%로 */
   .top-left-controls .sidebar-toggle svg,
@@ -1387,16 +1413,15 @@ body {
     transform: translateX(-100%);
   }
   
-  /* 버튼은 PC와 동일한 좌측 상단 클러스터(.top-left-controls)에서 제어 */
   .sidebar-toggle {
-    position: static !important; /* 클러스터 컨테이너 기준으로 배치 */
-    width: 40px !important;  /* 모바일 통일 사이즈 */
-    height: 40px !important; /* 모바일 통일 사이즈 */
-    display: inline-flex !important; /* 중앙 정렬을 위해 flex 유지 */
+    position: static !important;
+    width: 40px !important;
+    height: 40px !important;
+    display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
   padding: 0 !important;
-  line-height: 0 !important; /* 인라인 베이스라인 영향 제거 */
+  line-height: 0 !important;
   box-sizing: border-box !important;
   }
   
