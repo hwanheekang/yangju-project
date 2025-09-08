@@ -389,8 +389,10 @@ main {
     gap: 16px; /* PC와 동일 간격 */
     z-index: 1200;
   }
-  /* 모바일에서는 사이드바 열림 시에도 컨트롤 위치 이동 금지 */
-  .sidebar-open .top-left-controls { transform: none !important; }
+  /* 모바일: 사이드바 열린 상태에서 버튼 이동 (데스크탑과 동일하게) */
+  .sidebar-open .top-left-controls {
+    transform: translateX(min(250px, 80vw));
+  }
   
   .sidebar-toggle,
   .dark-mode-toggle {
@@ -1166,15 +1168,38 @@ body {
   /* Ensure both toggles share same size on mobile */
   .top-left-controls .sidebar-toggle,
   .top-left-controls .dark-mode-toggle {
-    width: 40px !important;
-    height: 40px !important;
+    width: 44px !important;
+    height: 44px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
   }
   /* Override any previous mobile icon sizing to 60% */
+
+  /* 기본(모바일/태블릿)에서는 85%로, 1024px 이상에서만 60%로 */
   .top-left-controls .sidebar-toggle svg,
   .top-left-controls .dark-mode-toggle svg {
-  width: 60% !important;
-  height: 60% !important;
-  display: block;
+    width: 85% !important;
+    height: 85% !important;
+    min-width: 24px;
+    min-height: 24px;
+    max-width: 32px;
+    max-height: 32px;
+    display: block;
+    margin: 0 auto;
+  }
+  @media (min-width: 1024px) {
+    .top-left-controls .sidebar-toggle svg,
+    .top-left-controls .dark-mode-toggle svg {
+      width: 60% !important;
+      height: 60% !important;
+      min-width: 24px;
+      min-height: 24px;
+      max-width: 28px;
+      max-height: 28px;
+    }
   }
   /* Make header-inner span full width on mobile so the button can align with screen edge */
   .app-header .header-inner {
