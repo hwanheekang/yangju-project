@@ -2,7 +2,7 @@
  * localStorage에서 JWT 토큰을 가져오는 함수
  * @returns {string|null} 저장된 토큰 또는 null
  */
-const getToken = () => localStorage.getItem('jwtToken');
+const getToken = () => sessionStorage.getItem('jwtToken');
 
 /* =========================
    API Base URL Resolver
