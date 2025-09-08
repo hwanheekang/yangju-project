@@ -466,6 +466,7 @@ jobs:
               --generate-ssh-keys \
               --custom-data infra/cloud-init-frontend.yaml \
               --assign-identity "$VMSS_FE_IDENTITY_ID" \
+              --load-balancer "" \
               --location eastus2
             echo "✅ Frontend VMSS created successfully"
           else
