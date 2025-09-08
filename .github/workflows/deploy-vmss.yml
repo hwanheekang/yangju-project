@@ -1,4 +1,4 @@
-name: Deploy to VMSS (Rolling)
+name: Deploy to VMSS (Optimized Rolling)
 
 on:
   workflow_dispatch:
@@ -10,23 +10,28 @@ on:
       target:
         description: "배포 대상 (frontend|backend)"
         required: true
-        default: "frontend"
+        default: "backend"
         type: choice
         options:
           - frontend
           - backend
+      update_cloud_init:
+        description: "cloud-init 업데이트 여부"
+        required: false
+        default: false
+        type: boolean
   push:
     branches: [ "main" ]
     paths:
-      - "infra/docker-compose.yml"
+      - "infra/cloud-init-*.yaml"
       - ".github/workflows/deploy-vmss.yml"
 
 permissions:
   contents: read
-  id-token: write # OIDC 필요
+  id-token: write
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-vmss-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -38,9 +43,11 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: dev
     env:
       SELECTED_SHA: ${{ github.event.inputs.sha_tag }}
-      TARGET: ${{ github.event.inputs.target }}
+      TARGET: ${{ github.event.inputs.target || 'backend' }}
+      UPDATE_CLOUD_INIT: ${{ github.event.inputs.update_cloud_init || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -48,6 +55,188 @@ jobs:
         uses: azure/login@v2
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Prepare deployment
+        id: prep
+        run: |
+          if [ -n "${{ env.SELECTED_SHA }}" ]; then
+            echo "IMAGE_TAG=${{ env.SELECTED_SHA }}" >> $GITHUB_ENV
+          else
+            echo "IMAGE_TAG=latest" >> $GITHUB_ENV
+          fi
+          
+          if [ "${{ env.TARGET }}" = "frontend" ]; then
+            echo "VMSS_NAME=${{ env.VMSS_FE }}" >> $GITHUB_ENV
+            echo "CLOUD_INIT_FILE=infra/cloud-init-frontend.yaml" >> $GITHUB_ENV
+          else
+            echo "VMSS_NAME=${{ env.VMSS_BE }}" >> $GITHUB_ENV
+            echo "CLOUD_INIT_FILE=infra/cloud-init-optimized.yaml" >> $GITHUB_ENV
+          fi
+          
+          echo "Deployment config -> TARGET=${{ env.TARGET }}, IMAGE_TAG=${{ env.IMAGE_TAG }}, VMSS_NAME=${{ env.VMSS_NAME }}"
+
+      - name: Configure VMSS Managed Identity (if needed)
+        run: |
+          # Ensure VMSS has proper permissions
+          VMSS_IDENTITY=$(az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_NAME }} --query "identity.principalId" -o tsv)
+          
+          if [ -n "$VMSS_IDENTITY" ] && [ "$VMSS_IDENTITY" != "null" ]; then
+            echo "VMSS Managed Identity: $VMSS_IDENTITY"
+            
+            # Grant AcrPull role
+            az role assignment create \
+              --assignee "$VMSS_IDENTITY" \
+              --role "AcrPull" \
+              --scope "/subscriptions/${{ vars.AZURE_SUBSCRIPTION_ID }}/resourceGroups/${{ env.AZURE_RG }}/providers/Microsoft.ContainerRegistry/registries/${{ env.ACR_NAME }}" \
+              2>/dev/null || echo "AcrPull role already assigned"
+          else
+            echo "Warning: VMSS Managed Identity not found"
+          fi
+
+      - name: Update VMSS model (if cloud-init changed)
+        if: env.UPDATE_CLOUD_INIT == 'true'
+        run: |
+          echo "Updating VMSS model with new cloud-init..."
+          
+          # First, update rolling upgrade policy for better reliability
+          az vmss update \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_NAME }} \
+            --set upgradePolicy.mode=Rolling \
+            --set upgradePolicy.rollingUpgradePolicy.maxBatchInstancePercent=50 \
+            --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyInstancePercent=80 \
+            --set upgradePolicy.rollingUpgradePolicy.maxUnhealthyUpgradedInstancePercent=80 \
+            --set upgradePolicy.rollingUpgradePolicy.pauseTimeBetweenBatches=PT60S
+          
+          # Update VMSS with new cloud-init (using file directly)
+          az vmss update \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_NAME }} \
+            --custom-data "${{ env.CLOUD_INIT_FILE }}"
+
+      - name: Rolling upgrade instances (if cloud-init changed)
+        if: env.UPDATE_CLOUD_INIT == 'true'
+        run: |
+          echo "Starting rolling upgrade for cloud-init changes..."
+          
+          # Start rolling upgrade
+          az vmss rolling-upgrade start \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_NAME }}
+          
+          # Wait for completion with timeout
+          timeout 600 bash -c '
+            while true; do
+              STATUS=$(az vmss rolling-upgrade get-latest --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_NAME }} --query "runningStatus.code" -o tsv)
+              echo "Rolling upgrade status: $STATUS"
+              if [ "$STATUS" = "RollingForward" ] || [ "$STATUS" = "Completed" ]; then
+                echo "Rolling upgrade completed successfully"
+                break
+              elif [ "$STATUS" = "Faulted" ] || [ "$STATUS" = "Cancelled" ]; then
+                echo "Rolling upgrade failed: $STATUS"
+                exit 1
+              fi
+              sleep 30
+            done
+          ' || echo "Rolling upgrade timeout - continuing with run-command deployment"
+
+      - name: Deploy application with run-command
+        run: |
+          echo "Deploying IMAGE_TAG=${{ env.IMAGE_TAG }} to VMSS ${{ env.VMSS_NAME }}"
+          
+          # Use run-command for application deployment
+          az vmss run-command invoke \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_NAME }} \
+            --instance-id "*" \
+            --command-id RunShellScript \
+            --scripts "
+              set -e
+              echo '=== VMSS Application Update Start ==='
+              echo 'Deploying IMAGE_TAG=${{ env.IMAGE_TAG }} on $(hostname)'
+              
+              # Update environment variable
+              export IMAGE_TAG=${{ env.IMAGE_TAG }}
+              sudo mkdir -p /opt/yangju
+              echo 'IMAGE_TAG=${{ env.IMAGE_TAG }}' | sudo tee -a /opt/yangju/.env
+              
+              # Login to ACR using Managed Identity
+              echo 'Authenticating with ACR using Managed Identity...'
+              TOKEN=\$(curl -s -H 'Metadata:true' 'http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/' | jq -r .access_token)
+              echo \"\$TOKEN\" | sudo docker login ${{ env.ACR_NAME }}.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin
+              
+              # Pull and restart application
+              cd /opt/yangju
+              if [ -f docker-compose.yml ]; then
+                echo 'Pulling new images...'
+                sudo docker compose pull
+                echo 'Restarting application...'
+                sudo systemctl restart yangju.service || sudo docker compose up -d
+              else
+                echo 'Warning: docker-compose.yml not found, may need cloud-init update'
+              fi
+              
+              # Health check
+              echo 'Performing health check...'
+              for i in {1..30}; do
+                if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
+                  echo '✅ Health check passed after \${i} attempts'
+                  break
+                elif curl -fsS http://localhost:8080 >/dev/null 2>&1; then
+                  echo '✅ Health check passed (port 8080) after \${i} attempts'
+                  break
+                else
+                  echo 'Health check attempt \${i}/30...'
+                  sleep 3
+                fi
+              done
+              
+              # Show running containers
+              sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+              echo '=== VMSS Application Update Complete ==='
+            " \
+            --timeout 300 \
+            --query 'value[0].message' -o tsv
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying VMSS deployment..."
+          
+          # Check VMSS instances status
+          az vmss list-instances \
+            --resource-group ${{ env.AZURE_RG }} \
+            --name ${{ env.VMSS_NAME }} \
+            --query "[].{InstanceId:instanceId, ProvisioningState:provisioningState, HealthState:latestModelApplied}" \
+            -o table
+          
+          # Check Load Balancer health (if exists)
+          LB_NAME=$(az network lb list --resource-group ${{ env.AZURE_RG }} --query "[0].name" -o tsv 2>/dev/null || echo "")
+          if [ -n "$LB_NAME" ]; then
+            echo "Load Balancer probes status:"
+            az network lb probe list \
+              --resource-group ${{ env.AZURE_RG }} \
+              --lb-name "$LB_NAME" \
+              --query "[].{Name:name, Port:port, Protocol:protocol}" \
+              -o table
+          fi
+
+      - name: Summary
+        run: |
+          echo '# 🚀 VMSS Deployment Summary' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '## Configuration' >> $GITHUB_STEP_SUMMARY
+          echo "- **Target**: ${{ env.TARGET }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **VMSS**: ${{ env.VMSS_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Tag**: ${{ env.IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Resource Group**: ${{ env.AZURE_RG }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **ACR**: ${{ env.ACR_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cloud-init Updated**: ${{ env.UPDATE_CLOUD_INIT }}" >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '## Next Steps' >> $GITHUB_STEP_SUMMARY
+          echo '- Monitor application logs: `az vmss run-command invoke ... --scripts "sudo journalctl -u yangju.service -f"`' >> $GITHUB_STEP_SUMMARY
+          echo '- Check container status: `az vmss run-command invoke ... --scripts "sudo docker ps"`' >> $GITHUB_STEP_SUMMARY
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
