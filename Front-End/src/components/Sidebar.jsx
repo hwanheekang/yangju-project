@@ -33,6 +33,7 @@ const Sidebar = ({ onLogout, isOpen, onToggle }) => {
             <img src={logo} alt="AI 가계부 로고" style={{ height: 112, width:'auto' }} />
           </div>
           <Link to="/" className="sidebar-link">대시보드</Link>
+          <a href="http://cheatkey.cloud/" target="_blank" rel="noopener noreferrer" className="sidebar-link">미니 게임</a>
         </nav>
         
         <button onClick={handleLogout} className="logout-btn">로그아웃</button>
