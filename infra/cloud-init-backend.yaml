@@ -28,7 +28,6 @@ write_files:
             interval: 30s
             timeout: 5s
             retries: 5
-            # extended for initial package installs (azure-cli etc)
             start_period: 90s
           logging:
             driver: "json-file"
@@ -73,7 +72,6 @@ write_files:
       fetch() { az keyvault secret show --vault-name "$KV_NAME" --name "$1" --query value -o tsv 2>/dev/null || echo ""; }
       safe() { if command -v az >/dev/null 2>&1; then fetch "$1"; else echo ""; fi; }
 
-      # Attempt real secrets (fallback to changeme values)
       JWT_SECRET="$(safe JWT-SECRET)"; [ -n "$JWT_SECRET" ] || JWT_SECRET="changeme-jwt-$RANDOM"
       DB_SERVER="$(safe DB-SERVER)"; [ -n "$DB_SERVER" ] || DB_SERVER="localhost"
       DB_DATABASE="$(safe DB-DATABASE)"; [ -n "$DB_DATABASE" ] || DB_DATABASE="changeme_db"
@@ -168,12 +166,12 @@ write_files:
       Wants=docker.service network-online.target yangju-secrets.service
       Requires=yangju-secrets.service
       [Service]
-      Type=simple
+      Type=oneshot
+      RemainAfterExit=yes
       WorkingDirectory=/opt/yangju
       ExecStartPre=/usr/local/bin/acr-login.sh
       ExecStart=/usr/local/bin/yangju-compose-run.sh
-      ExecReload=/usr/local/bin/yangju-compose-run.sh
-      ExecStop=/usr/bin/docker compose -f docker-compose.yml down
+      ExecStop=/usr/local/bin/docker-compose -f docker-compose.yml down
       Restart=always
       RestartSec=8
       TimeoutStartSec=180
@@ -192,14 +190,14 @@ write_files:
       for step in pull up; do
         attempt=1
         while true; do
-          echo "[INFO] docker compose ${step} attempt ${attempt}/${MAX}" >&2
+          echo "[INFO] docker-compose ${step} attempt ${attempt}/${MAX}" >&2
           if [ "$step" = pull ]; then
-            /usr/bin/docker compose -f "$FILE" pull && break || true
+            /usr/local/bin/docker-compose -f "$FILE" pull && break || true
           else
-            /usr/bin/docker compose -f "$FILE" up -d && break || true
+            /usr/local/bin/docker-compose -f "$FILE" up -d && break || true
           fi
           if [ $attempt -ge $MAX ]; then
-            echo "[ERROR] docker compose ${step} failed after ${MAX} attempts" >&2
+            echo "[ERROR] docker-compose ${step} failed after ${MAX} attempts" >&2
             exit 1
           fi
           sleep $((attempt*5))
@@ -209,28 +207,22 @@ write_files:
       exit 0
 
 runcmd:
-  # Set timezone
   - timedatectl set-timezone Asia/Seoul
-  
-  # Install Docker GPG key and repository properly
   - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
   - echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
   - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-  
-  # Install Azure CLI
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
-  
-  # Configure Docker
+  - DOCKER_COMPOSE_VERSION=v2.27.0
+  - curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
   - usermod -aG docker bcdbeuser00 || true
   - systemctl enable docker
   - systemctl start docker
   - systemctl daemon-reload
-  
-  # Start services
   - systemctl enable yangju-secrets.service
   - systemctl start yangju-secrets.service
   - systemctl enable yangju.service
   - systemctl start yangju.service
 
-final_message: backend cloud-init complete
+final_message: "backend cloud-init complete"
