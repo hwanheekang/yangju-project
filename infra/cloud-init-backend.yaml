@@ -83,7 +83,7 @@ write_files:
       STORAGE_ACCOUNT_NAME="$(safe STORAGE-ACCOUNT-NAME)"; [ -n "$STORAGE_ACCOUNT_NAME" ] || STORAGE_ACCOUNT_NAME="devstorage"
       STORAGE_ACCOUNT_KEY="$(safe STORAGE-ACCOUNT-KEY)"; [ -n "$STORAGE_ACCOUNT_KEY" ] || STORAGE_ACCOUNT_KEY="devstoragekey=="
       BLOB_CONTAINER_NAME="$(safe AZURE-BLOB-CONTAINER-NAME)"; [ -n "$BLOB_CONTAINER_NAME" ] || BLOB_CONTAINER_NAME="receipts-data"
-      CORS_ORIGINS="$(safe CORS-ORIGINS)"; [ -n "$CORS_ORIGINS" ] || CORS_ORIGINS="http://localhost:5173"
+      CORS_ORIGINS="$(safe CORS-ORIGINS)"; [ -n "$CORS_ORIGINS" ] || CORS_ORIGINS="http://172.16.2.4,http://172.16.2.5,http://68.220.1.112,http://localhost:3000,http://localhost:5173"
 
       APP_ENV="production"
       DEPLOY_TARGETS="vmss"
@@ -95,35 +95,55 @@ write_files:
       DB_POOL_MAX="5"
       DB_POOL_MIN="0"
       DB_POOL_IDLE_TIMEOUT_MS="30000"
-      IMAGE_TAG="${IMAGE_TAG:-latest}"
+      IMAGE_TAG="${IMAGE_TAG:-latest}"      # 1. ACR에 로그인
+      sudo /usr/local/bin/acr-login.sh
+      
+      # 2. 최신 이미지 가져오기
+      sudo docker pull acrbcd00.azurecr.io/yangju-backend:latest
+      
+      # 3. 기존 컨테이너 중지 및 제거
+      sudo docker stop yangju-backend || true
+      sudo docker rm yangju-backend || true
+      
+      # 4. 새로운 컨테이너 시작
+      sudo systemctl restart yangju.service
+      
+      # 5. 로그 확인
+      sudo docker logs yangju-backend -f
 
+      # .env 파일 생성 - 변수 치환 사용
       cat > "$TMP" <<EOF
-      NODE_ENV=production
-      APP_ENV=$APP_ENV
-      DEPLOY_TARGETS=$DEPLOY_TARGETS
-      LOG_LEVEL=$LOG_LEVEL
-      GIT_COMMIT=$GIT_COMMIT
-      DI_API_VERSION=$DI_API_VERSION
-      PORT=4000
-      SKIP_DB_FATAL=1
-      DB_EARLY_CONNECT=0
-      CORS_ORIGINS=$CORS_ORIGINS
-      AZURE_STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT_NAME
-      AZURE_STORAGE_ACCOUNT_KEY=$STORAGE_ACCOUNT_KEY
-      AZURE_BLOB_CONTAINER_NAME=$BLOB_CONTAINER_NAME
-      AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=$DI_ENDPOINT
-      AZURE_DOCUMENT_INTELLIGENCE_KEY=$AZURE_DI_KEY
-      DI_MODEL_ID=$DI_MODEL_ID
-      DB_SERVER=$DB_SERVER
-      DB_DATABASE=$DB_DATABASE
-      DB_USER=$DB_USER
-      DB_PASSWORD=$DB_PASSWORD
-      DB_PORT=1433
-      DB_CONN_TIMEOUT_MS=$DB_CONN_TIMEOUT_MS
-      DB_REQUEST_TIMEOUT_MS=$DB_REQUEST_TIMEOUT_MS
-      DB_POOL_MAX=$DB_POOL_MAX
-      DB_POOL_MIN=$DB_POOL_MIN
-      DB_POOL_IDLE_TIMEOUT_MS=$DB_POOL_IDLE_TIMEOUT_MS
+NODE_ENV=production
+APP_ENV=$APP_ENV
+DEPLOY_TARGETS=$DEPLOY_TARGETS
+LOG_LEVEL=$LOG_LEVEL
+GIT_COMMIT=$GIT_COMMIT
+DI_API_VERSION=$DI_API_VERSION
+PORT=4000
+SKIP_DB_FATAL=1
+DB_EARLY_CONNECT=0
+CORS_ORIGINS=$CORS_ORIGINS
+AZURE_STORAGE_ACCOUNT_NAME=$STORAGE_ACCOUNT_NAME
+AZURE_STORAGE_ACCOUNT_KEY=$STORAGE_ACCOUNT_KEY
+AZURE_BLOB_CONTAINER_NAME=$BLOB_CONTAINER_NAME
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=$DI_ENDPOINT
+AZURE_DOCUMENT_INTELLIGENCE_KEY=$AZURE_DI_KEY
+DI_MODEL_ID=$DI_MODEL_ID
+DB_SERVER=$DB_SERVER
+DB_DATABASE=$DB_DATABASE
+DB_USER=$DB_USER
+EOF
+      
+      # DB_PASSWORD는 특수 문자 때문에 별도로 추가
+      echo "DB_PASSWORD=${DB_PASSWORD}" >> "$TMP"
+      
+      cat >> "$TMP" <<EOF
+DB_PORT=1433
+DB_CONN_TIMEOUT_MS=$DB_CONN_TIMEOUT_MS
+DB_REQUEST_TIMEOUT_MS=$DB_REQUEST_TIMEOUT_MS
+DB_POOL_MAX=$DB_POOL_MAX
+DB_POOL_MIN=$DB_POOL_MIN
+DB_POOL_IDLE_TIMEOUT_MS=$DB_POOL_IDLE_TIMEOUT_MS
       JWT_SECRET=$JWT_SECRET
       IMAGE_TAG=$IMAGE_TAG
       EOF
@@ -172,8 +192,6 @@ write_files:
       ExecStartPre=/usr/local/bin/acr-login.sh
       ExecStart=/usr/local/bin/yangju-compose-run.sh
       ExecStop=/usr/local/bin/docker-compose -f docker-compose.yml down
-      Restart=always
-      RestartSec=8
       TimeoutStartSec=180
       [Install]
       WantedBy=multi-user.target
