@@ -4,7 +4,7 @@ FROM node:20.19-alpine AS builder
 WORKDIR /app
 
 # 캐시 최적화: 의존성만 우선 복사
-COPY package*.json ./
+COPY Front-End/package*.json ./
 
 # 잠금파일 우선 설치
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
