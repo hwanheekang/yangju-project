@@ -12,7 +12,12 @@ dotenv.config();
 const app = express();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+  limits: { 
+    fileSize: 50 * 1024 * 1024, // 50MB
+    fieldSize: 50 * 1024 * 1024, // 50MB
+    fields: 10,
+    files: 5
+  }
 });
 
 // Trust reverse proxy (App Gateway / Azure Front Door / Nginx Ingress) when explicitly enabled
@@ -106,8 +111,12 @@ const morganFormat = logLevel === 'debug' ? 'dev' : 'combined';
 if (logLevel !== 'silent') {
   app.use(morgan(morganFormat));
 }
+
+// 업로드 크기 제한을 모든 파서에 적용
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.raw({ limit: '50mb' }));
+app.use(express.text({ limit: '50mb' }));
 app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {

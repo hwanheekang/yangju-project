@@ -23,8 +23,6 @@ write_files:
             - "4000:4000"
           env_file:
             - .env
-          environment:
-            - PORT=3000
           healthcheck:
             test: ["CMD","curl","-f","http://localhost:4000/health"]
             interval: 30s
@@ -121,7 +119,7 @@ DEPLOY_TARGETS=$DEPLOY_TARGETS
 LOG_LEVEL=$LOG_LEVEL
 GIT_COMMIT=$GIT_COMMIT
 DI_API_VERSION=$DI_API_VERSION
-PORT=4000
+PORT=3000
 SKIP_DB_FATAL=1
 DB_EARLY_CONNECT=0
 CORS_ORIGINS=$CORS_ORIGINS
