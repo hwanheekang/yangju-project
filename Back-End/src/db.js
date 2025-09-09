@@ -22,7 +22,11 @@ const dbConfig = {
     encrypt: true, // Azure SQL 필수
     trustServerCertificate: true, // Azure SQL Database 연결을 위해 임시로 true 설정
     enableArithAbort: true,
-    cryptoCredentialsDetails: { minVersion: 'TLSv1.2' },
+    // Azure SQL Database 추가 옵션
+    abortTransactionOnError: true,
+    // 연결 문자열에서 사용할 수 있는 추가 매개변수
+    instanceName: undefined,
+    useUTC: false,
   }
 };
 
