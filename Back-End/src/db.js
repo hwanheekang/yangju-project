@@ -20,7 +20,7 @@ const dbConfig = {
   },
   options: {
     encrypt: true, // Azure SQL 필수
-    trustServerCertificate: false, // 로컬/자가서명 개발환경만 true 고려
+    trustServerCertificate: true, // Azure SQL Database 연결을 위해 임시로 true 설정
     enableArithAbort: true,
     cryptoCredentialsDetails: { minVersion: 'TLSv1.2' },
   }
