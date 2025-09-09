@@ -10,7 +10,10 @@ import { pool } from './db.js';
 
 dotenv.config();
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+});
 
 // Trust reverse proxy (App Gateway / Azure Front Door / Nginx Ingress) when explicitly enabled
 if ((process.env.TRUST_PROXY || '').toLowerCase() === '1' || (process.env.TRUST_PROXY || '').toLowerCase() === 'true') {
@@ -103,7 +106,8 @@ const morganFormat = logLevel === 'debug' ? 'dev' : 'combined';
 if (logLevel !== 'silent') {
   app.use(morgan(morganFormat));
 }
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.post('/api/upload-and-analyze', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
