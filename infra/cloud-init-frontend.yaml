@@ -19,15 +19,18 @@ write_files:
       services:
         frontend:
           image: acrbcd00.azurecr.io/frontend:${IMAGE_TAG:-latest}
-          container_name: yangju-frontend
+          container_name: yangju-frontendㅎ
           restart: always
           ports:
-            - "80:80"
+            - "3000:80"
           environment:
             - NODE_ENV=production
-            - VITE_API_URL=http://172.16.2.4:4000
+            - VITE_API_URL=http://172.16.2.5:4000
+            - BACKEND_SCHEME=http
+            - BACKEND_HOST=172.16.2.5
+            - BACKEND_PORT=4000
           healthcheck:
-            test: ["CMD", "curl", "-f", "http://localhost/health"]
+            test: ["CMD", "curl", "-f", "http://localhost:80/health"]
             interval: 30s
             timeout: 10s
             retries: 3
@@ -43,15 +46,51 @@ write_files:
         default:
           name: yangju-frontend-net
 
+  - path: /etc/nginx/nginx.conf
+    permissions: '0644'
+    content: |
+      user www-data;
+      worker_processes auto;
+      pid /run/nginx.pid;
+      include /etc/nginx/modules-enabled/*.conf;
+
+      events {
+          worker_connections 768;
+      }
+
+      http {
+          sendfile on;
+          tcp_nopush on;
+          tcp_nodelay on;
+          keepalive_timeout 65;
+          types_hash_max_size 2048;
+          client_max_body_size 50m;
+
+          include /etc/nginx/mime.types;
+          default_type application/octet-stream;
+
+          ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;
+          ssl_prefer_server_ciphers on;
+
+          access_log /var/log/nginx/access.log;
+          error_log /var/log/nginx/error.log;
+
+          gzip on;
+
+          include /etc/nginx/conf.d/*.conf;
+          include /etc/nginx/sites-enabled/*;
+      }
+
   - path: /etc/nginx/sites-available/yangju-frontend
     permissions: '0644'
     content: |
       server {
           listen 80;
           server_name _;
+          client_max_body_size 50m;
           
           location / {
-              proxy_pass http://localhost:80;
+              proxy_pass http://localhost:3000;
               proxy_http_version 1.1;
               proxy_set_header Upgrade $http_upgrade;
               proxy_set_header Connection 'upgrade';
@@ -125,8 +164,6 @@ write_files:
       ExecStartPre=/usr/local/bin/acr-login.sh
       ExecStart=/usr/local/bin/yangju-compose-run-frontend.sh
       ExecStop=/usr/local/bin/docker-compose -f /opt/yangju-frontend/docker-compose.yml down
-      Restart=always
-      RestartSec=8
       TimeoutStartSec=120
       [Install]
       WantedBy=multi-user.target
