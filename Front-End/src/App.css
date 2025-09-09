@@ -132,10 +132,21 @@
   position: relative;
 }
 
-/* 로그인 페이지에서 app-container 스크롤 방지 */
-body.login-page .app-container {
-  height: 100vh !important;
-  overflow: hidden !important;
+/* 로그인 페이지에서 app-container 스크롤 방지 - 데스크탑만 */
+@media (min-width: 769px) {
+  body.login-page .app-container {
+    height: 100vh !important;
+    overflow: hidden !important;
+  }
+}
+
+/* 모바일에서 로그인 페이지 app-container는 자연스러운 스크롤 */
+@media (max-width: 768px) {
+  body.login-page .app-container {
+    height: auto !important;
+    min-height: 100vh !important;
+    overflow-y: visible !important;
+  }
 }
 
 /* 사이드바 배경 오버레이 */
@@ -436,8 +447,12 @@ main {
     min-height: 100vh;
     width: 100vw;
     overflow-x: hidden; /* 가로 스크롤 방지 */
-    overflow-y: auto; /* 세로 스크롤만 허용 */
+    overflow-y: visible; /* 자연스러운 세로 스크롤 */
     box-sizing: border-box;
+    /* 모바일 터치 스크롤 최적화 */
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y; /* 세로 팬만 허용 */
+    overscroll-behavior: contain; /* 바운스 스크롤 제한 */
   }
   
   /* 메인 컨텐츠 - 단일 스크롤 구조 */
@@ -450,6 +465,8 @@ main {
     box-sizing: border-box;
     overflow: visible; /* 이중 스크롤 제거 */
     display: block; /* flexbox 해제 */
+    /* 터치 스크롤 개선 */
+    touch-action: pan-y;
   }
   
   /* main 요소 - 이중 스크롤 방지 */
@@ -460,6 +477,8 @@ main {
     overflow: visible; /* 이중 스크롤 제거 */
     height: auto; /* 자동 높이 */
     box-sizing: border-box;
+    /* 터치 스크롤 개선 */
+    touch-action: pan-y;
   }
   
   /* 대시보드 컨테이너 반응형 */
@@ -471,6 +490,8 @@ main {
     box-sizing: border-box;
     overflow-x: hidden;
     height: auto; /* 자동 높이 */
+    /* 터치 스크롤 개선 */
+    touch-action: pan-y;
   }
   
   /* 대시보드 메인 그리드를 모바일에서 단일 컬럼으로 */
@@ -691,6 +712,9 @@ body, html, #root {
   overflow-x: hidden; /* 수평 스크롤 방지 */
   /* 스크롤바 토글에도 레이아웃이 흔들리지 않도록 고정 */
   scrollbar-gutter: stable both-edges;
+  /* 모바일 터치 스크롤 최적화 */
+  -webkit-overflow-scrolling: touch;
+  touch-action: manipulation;
 }
 
 /* Responsive logo sizing */
@@ -704,9 +728,26 @@ body, html, #root {
 
 /* 모바일에서 단일 스크롤 구조 및 로고 크기 조정 */
 @media (max-width: 768px) {
+  html {
+    height: 100%;
+    overflow-y: auto; /* 세로 스크롤 허용 */
+  }
+  
   body {
+    min-height: 100vh; /* 최소 높이만 지정, 콘텐츠에 따라 늘어남 */
+    height: auto; /* 고정 높이 제거 */
     overflow-y: auto; /* 세로 스크롤만 허용 */
-    height: auto; /* 자동 높이 */
+    /* iOS Safari 스크롤 개선 */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain; /* 바운스 스크롤 제한 */
+    /* 모바일 터치 스크롤 최적화 */
+    touch-action: pan-y; /* 세로 스크롤만 허용 */
+  }
+  
+  #root {
+    min-height: 100vh;
+    height: auto;
+    overflow-y: visible;
   }
   
   .logo-img { 
@@ -983,18 +1024,40 @@ body {
   color: #222;
 }
 
-/* 로그인 페이지에서 스크롤 방지 */
-body.login-page {
-  overflow: hidden !important;
-  height: 100vh !important;
-  position: fixed !important;
-  width: 100% !important;
+/* 로그인 페이지에서 스크롤 방지 - 데스크탑만 */
+@media (min-width: 769px) {
+  body.login-page {
+    overflow: hidden !important;
+    height: 100vh !important;
+    position: fixed !important;
+    width: 100% !important;
+  }
+
+  html.login-page {
+    overflow: hidden !important;
+    height: 100vh !important;
+  }
 }
 
-/* 로그인 페이지에서 html도 스크롤 방지 */
-html.login-page {
-  overflow: hidden !important;
-  height: 100vh !important;
+/* 모바일에서는 로그인 페이지도 스크롤 허용 */
+@media (max-width: 768px) {
+  body.login-page {
+    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    position: relative !important;
+    width: 100% !important;
+    /* 모바일 터치 스크롤 최적화 */
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
+
+  html.login-page {
+    overflow-y: auto !important;
+    height: auto !important;
+    min-height: 100vh !important;
+  }
 }
 
 .sidebar {
@@ -1474,6 +1537,36 @@ html.login-page {
     margin: 0 0 1rem 0; /* remove side margins */
     padding: 0 0.75rem;
     box-sizing: border-box;
+  }
+}
+
+/* ========================
+   모바일 스크롤 최적화 개선
+   ======================== */
+@media (max-width: 768px) {
+  /* iOS Safari 스크롤 개선 */
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* 모든 스크롤 가능한 요소에 터치 최적화 적용 */
+  body, html, #root, .app-container, .main-content {
+    scroll-behavior: smooth;
+    overscroll-behavior: contain; /* 바운스 스크롤 제한 */
+  }
+  
+  /* 모바일에서 스크롤 끝 부분에서 위로 올라가지 않는 문제 해결 */
+  body {
+    /* 스크롤 영역이 충분하도록 최소 패딩 추가 */
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+  
+  /* 터치 이벤트 최적화 */
+  .dashboard-container,
+  .main-content,
+  main {
+    will-change: scroll-position;
+    transform: translateZ(0); /* 하드웨어 가속 활성화 */
   }
   
   .logo-img {
