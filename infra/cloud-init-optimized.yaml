@@ -182,12 +182,29 @@ write_files:
       case "${1:-up}" in
         pull)
           echo "[INFO] Pulling latest images with Managed Identity"
-          # Use docker login with Managed Identity token
-          TOKEN=$(curl -s -H "Metadata:true" \
-            "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://management.azure.com/" | \
-            jq -r .access_token)
-          echo "$TOKEN" | docker login acrbcd00.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin
-          /usr/bin/docker compose -f "$FILE" pull
+          max_retries=3
+          retry_count=0
+          while [ $retry_count -lt $max_retries ]; do
+            echo "[INFO] ACR login attempt $((retry_count + 1))/$max_retries"
+            # Get access token for ACR using Managed Identity with correct scope
+            if TOKEN=$(curl -s -H "Metadata:true" \
+              "http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://containerregistry.azure.net" | \
+              jq -r .access_token 2>/dev/null) && [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ]; then
+              if echo "$TOKEN" | docker login acrbcd00.azurecr.io --username 00000000-0000-0000-0000-000000000000 --password-stdin; then
+                echo "[INFO] ACR login successful"
+                /usr/bin/docker compose -f "$FILE" pull
+                return 0
+              fi
+            fi
+            echo "[WARN] Trying fallback authentication method..."
+            retry_count=$((retry_count + 1))
+            if [ $retry_count -lt $max_retries ]; then
+              echo "[WARN] ACR login failed, retrying in 10 seconds..."
+              sleep 10
+            fi
+          done
+          echo "Error: ACR login failed after $max_retries attempts"
+          return 1
           ;;
         up)
           /usr/bin/docker compose -f "$FILE" up -d

@@ -810,41 +810,48 @@ jobs:
           # Deploy to Backend VMSS if it exists
           if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} >/dev/null 2>&1; then
             echo "Deploying to Backend VMSS..."
-            az vmss run-command invoke \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.VMSS_BE }} \
-              --instance-id "*" \
-              --command-id RunShellScript \
-              --scripts "
-                set -e
-                echo '=== Backend VMSS Instance Update Start ==='
-                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
-                
-                # Set environment variable
-                export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
-                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju/.env
-                
-                # Pull new images and restart service
-                cd /opt/yangju
-                sudo systemctl stop yangju.service
-                sudo /usr/local/bin/yangju-compose-run.sh pull
-                sudo systemctl start yangju.service
-                
-                # Wait for health check
-                for i in {1..30}; do
-                  if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
-                    echo 'Backend health check passed'
-                    break
-                  fi
-                  echo 'Waiting for backend health check... (\$i/30)'
-                  sleep 2
-                done
-                
-                sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-                echo '=== Backend VMSS Instance Update Complete ==='
-              " \
-              --query 'value[].message' -o tsv
-            echo "✅ Backend VMSS deployment completed"
+            # Get all instance IDs and deploy to each one individually
+            BACKEND_INSTANCE_IDS=$(az vmss list-instances --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_BE }} --query "[].instanceId" -o tsv)
+            
+            for instance_id in $BACKEND_INSTANCE_IDS; do
+              echo "Deploying to Backend VMSS instance $instance_id..."
+              az vmss run-command invoke \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name ${{ env.VMSS_BE }} \
+                --instance-id "$instance_id" \
+                --command-id RunShellScript \
+                --scripts "
+                  set -e
+                  echo '=== Backend VMSS Instance Update Start (Instance: $instance_id) ==='
+                  echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
+                  
+                  # Set environment variable
+                  export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
+                  echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju/.env
+                  
+                  # Pull new images and restart service
+                  cd /opt/yangju
+                  sudo systemctl stop yangju.service
+                  sudo /usr/local/bin/yangju-compose-run.sh pull
+                  sudo systemctl start yangju.service
+                  
+                  # Wait for health check
+                  for i in {1..30}; do
+                    if curl -fsS http://localhost:4000/health >/dev/null 2>&1; then
+                      echo 'Backend health check passed'
+                      break
+                    fi
+                    echo 'Waiting for backend health check... (\$i/30)'
+                    sleep 2
+                  done
+                  
+                  sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                  echo '=== Backend VMSS Instance Update Complete ==='
+                " \
+                --query 'value[].message' -o tsv
+              echo "✅ Backend VMSS instance $instance_id deployment completed"
+            done
+            echo "✅ All Backend VMSS instances deployment completed"
           else
             echo "⚠️ Backend VMSS not found, skipping deployment"
           fi
@@ -852,41 +859,48 @@ jobs:
           # Deploy to Frontend VMSS if it exists
           if az vmss show --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} >/dev/null 2>&1; then
             echo "Deploying to Frontend VMSS..."
-            az vmss run-command invoke \
-              --resource-group ${{ env.AZURE_RG }} \
-              --name ${{ env.VMSS_FE }} \
-              --instance-id "*" \
-              --command-id RunShellScript \
-              --scripts "
-                set -e
-                echo '=== Frontend VMSS Instance Update Start ==='
-                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
-                
-                # Set environment variable
-                export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
-                echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju-frontend/.env
-                
-                # Pull new images and restart service
-                cd /opt/yangju-frontend
-                sudo systemctl stop yangju-frontend.service
-                sudo /usr/local/bin/yangju-frontend-compose-run.sh pull
-                sudo systemctl start yangju-frontend.service
-                
-                # Wait for health check
-                for i in {1..30}; do
-                  if curl -fsS http://localhost:80 >/dev/null 2>&1; then
-                    echo 'Frontend health check passed'
-                    break
-                  fi
-                  echo 'Waiting for frontend health check... (\$i/30)'
-                  sleep 2
-                done
-                
-                sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
-                echo '=== Frontend VMSS Instance Update Complete ==='
-              " \
-              --query 'value[].message' -o tsv
-            echo "✅ Frontend VMSS deployment completed"
+            # Get all instance IDs and deploy to each one individually
+            FRONTEND_INSTANCE_IDS=$(az vmss list-instances --resource-group ${{ env.AZURE_RG }} --name ${{ env.VMSS_FE }} --query "[].instanceId" -o tsv)
+            
+            for instance_id in $FRONTEND_INSTANCE_IDS; do
+              echo "Deploying to Frontend VMSS instance $instance_id..."
+              az vmss run-command invoke \
+                --resource-group ${{ env.AZURE_RG }} \
+                --name ${{ env.VMSS_FE }} \
+                --instance-id "$instance_id" \
+                --command-id RunShellScript \
+                --scripts "
+                  set -e
+                  echo '=== Frontend VMSS Instance Update Start (Instance: $instance_id) ==='
+                  echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}'
+                  
+                  # Set environment variable
+                  export IMAGE_TAG=${{ needs.setup.outputs.image_tag }}
+                  echo 'IMAGE_TAG=${{ needs.setup.outputs.image_tag }}' >> /opt/yangju-frontend/.env
+                  
+                  # Pull new images and restart service
+                  cd /opt/yangju-frontend
+                  sudo systemctl stop yangju-frontend.service
+                  sudo /usr/local/bin/yangju-frontend-compose-run.sh pull
+                  sudo systemctl start yangju-frontend.service
+                  
+                  # Wait for health check
+                  for i in {1..30}; do
+                    if curl -fsS http://localhost:80 >/dev/null 2>&1; then
+                      echo 'Frontend health check passed'
+                      break
+                    fi
+                    echo 'Waiting for frontend health check... (\$i/30)'
+                    sleep 2
+                  done
+                  
+                  sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+                  echo '=== Frontend VMSS Instance Update Complete ==='
+                " \
+                --query 'value[].message' -o tsv
+              echo "✅ Frontend VMSS instance $instance_id deployment completed"
+            done
+            echo "✅ All Frontend VMSS instances deployment completed"
           else
             echo "⚠️ Frontend VMSS not found, skipping deployment"
           fi
