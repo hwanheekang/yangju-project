@@ -7,7 +7,6 @@ packages:
   - curl
   - jq
   - docker.io
-  - docker-compose-plugin
   - nginx
 
 timezone: Asia/Seoul
@@ -26,7 +25,7 @@ write_files:
             - "3000:3000"
           environment:
             - NODE_ENV=production
-            - VITE_API_URL=http://135.119.200.213:4000
+            - VITE_API_URL=http://172.16.2.5:4000
           healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:3000"]
             interval: 30s
@@ -69,30 +68,6 @@ write_files:
               add_header Content-Type text/plain;
           }
       }
-          restart: always
-          ports:
-            - "80:80"
-          environment:
-            BACKEND_SCHEME: ${BACKEND_SCHEME:-http}
-            BACKEND_HOST: ${BACKEND_HOST_OVERRIDE:-backend}
-            BACKEND_PORT: "4000"
-          healthcheck:
-            # root path returns 200 (static landing)
-            test: ["CMD", "curl", "-f", "http://localhost/" ]
-            interval: 30s
-            timeout: 5s
-            retries: 5
-            start_period: 8s
-          logging:
-            driver: "json-file"
-            options:
-              max-size: "10m"
-              max-file: "3"
-          mem_limit: 384m
-          cpus: "0.50"
-      networks:
-        default:
-          name: yangju-net
 
   - path: /usr/local/bin/acr-login.sh
     permissions: '0755'
@@ -108,48 +83,26 @@ write_files:
         echo "[WARN] az CLI not present yet"
       fi
 
-  - path: /etc/systemd/system/yangju.service
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=Yangju Frontend Stack
-      After=docker.service network-online.target
-      Wants=docker.service network-online.target
-
-      [Service]
-      Type=simple
-      WorkingDirectory=/opt/yangju
-      ExecStartPre=/usr/local/bin/acr-login.sh
-      ExecStart=/usr/local/bin/yangju-compose-run-frontend.sh
-      ExecReload=/usr/local/bin/yangju-compose-run-frontend.sh
-      ExecStop=/usr/bin/docker compose -f docker-compose.yml down
-      Restart=always
-      RestartSec=8
-      TimeoutStartSec=120
-
-      [Install]
-      WantedBy=multi-user.target
-
   - path: /usr/local/bin/yangju-compose-run-frontend.sh
     permissions: '0755'
     content: |
       #!/usr/bin/env bash
       set -euo pipefail
-      cd /opt/yangju
+      cd /opt/yangju-frontend
       FILE=docker-compose.yml
       export IMAGE_TAG="${IMAGE_TAG:-latest}"
       MAX=5
       for step in pull up; do
         attempt=1
         while true; do
-          echo "[INFO][frontend] docker compose ${step} attempt ${attempt}/${MAX}" >&2
+          echo "[INFO][frontend] docker-compose ${step} attempt ${attempt}/${MAX}" >&2
           if [ "$step" = pull ]; then
-            /usr/bin/docker compose -f "$FILE" pull && break || true
+            /usr/local/bin/docker-compose -f "$FILE" pull && break || true
           else
-            /usr/bin/docker compose -f "$FILE" up -d && break || true
+            /usr/local/bin/docker-compose -f "$FILE" up -d && break || true
           fi
           if [ $attempt -ge $MAX ]; then
-            echo "[ERROR][frontend] docker compose ${step} failed after ${MAX} attempts" >&2
+            echo "[ERROR][frontend] docker-compose ${step} failed after ${MAX} attempts" >&2
             exit 1
           fi
           sleep $((attempt*5))
@@ -158,13 +111,39 @@ write_files:
       done
       exit 0
 
+  - path: /etc/systemd/system/yangju-frontend.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Yangju Frontend Stack
+      After=docker.service network-online.target
+      Wants=docker.service network-online.target
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      WorkingDirectory=/opt/yangju-frontend
+      ExecStartPre=/usr/local/bin/acr-login.sh
+      ExecStart=/usr/local/bin/yangju-compose-run-frontend.sh
+      ExecStop=/usr/local/bin/docker-compose -f /opt/yangju-frontend/docker-compose.yml down
+      Restart=always
+      RestartSec=8
+      TimeoutStartSec=120
+      [Install]
+      WantedBy=multi-user.target
+
 runcmd:
   - timedatectl set-timezone Asia/Seoul
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
   - usermod -aG docker bcdfeuser00 || true
   - systemctl enable --now docker
+  - DOCKER_COMPOSE_VERSION=v2.27.0
+  - curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
+  - rm /etc/nginx/sites-enabled/default || true
+  - ln -s /etc/nginx/sites-available/yangju-frontend /etc/nginx/sites-enabled/
+  - systemctl restart nginx
   - systemctl daemon-reload
-  - systemctl enable yangju.service
-  - systemctl start yangju.service
+  - systemctl enable yangju-frontend.service
+  - systemctl start yangju-frontend.service
 
 final_message: "frontend cloud-init complete"
