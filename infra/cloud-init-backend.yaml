@@ -6,6 +6,8 @@ packages:
   - ca-certificates
   - curl
   - jq
+  - docker.io
+  - docker-compose
 
 timezone: Asia/Seoul
 
@@ -95,21 +97,7 @@ write_files:
       DB_POOL_MAX="5"
       DB_POOL_MIN="0"
       DB_POOL_IDLE_TIMEOUT_MS="30000"
-      IMAGE_TAG="${IMAGE_TAG:-latest}"      # 1. ACR에 로그인
-      sudo /usr/local/bin/acr-login.sh
-      
-      # 2. 최신 이미지 가져오기
-      sudo docker pull acrbcd00.azurecr.io/yangju-backend:latest
-      
-      # 3. 기존 컨테이너 중지 및 제거
-      sudo docker stop yangju-backend || true
-      sudo docker rm yangju-backend || true
-      
-      # 4. 새로운 컨테이너 시작
-      sudo systemctl restart yangju.service
-      
-      # 5. 로그 확인
-      sudo docker logs yangju-backend -f
+      IMAGE_TAG="${IMAGE_TAG:-latest}"
 
       # .env 파일 생성 - 변수 치환 사용
       cat > "$TMP" <<EOF
@@ -119,7 +107,7 @@ DEPLOY_TARGETS=$DEPLOY_TARGETS
 LOG_LEVEL=$LOG_LEVEL
 GIT_COMMIT=$GIT_COMMIT
 DI_API_VERSION=$DI_API_VERSION
-PORT=3000
+PORT=4000
 SKIP_DB_FATAL=1
 DB_EARLY_CONNECT=0
 CORS_ORIGINS=$CORS_ORIGINS
@@ -226,15 +214,11 @@ DB_POOL_IDLE_TIMEOUT_MS=$DB_POOL_IDLE_TIMEOUT_MS
 
 runcmd:
   - timedatectl set-timezone Asia/Seoul
-  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-  - echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-  - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io
   - curl -sL https://aka.ms/InstallAzureCLIDeb | bash
   - DOCKER_COMPOSE_VERSION=v2.27.0
   - curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
   - chmod +x /usr/local/bin/docker-compose
-  - usermod -aG docker bcdbeuser00 || true
+  - usermod -aG docker ubuntu || true
   - systemctl enable docker
   - systemctl start docker
   - systemctl daemon-reload
